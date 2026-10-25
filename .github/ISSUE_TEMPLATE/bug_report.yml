@@ -1,0 +1,51 @@
+name: Bug report
+description: Report a defect in Personal Agent OS
+title: "[bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing a bug. Please fill in as much as you can - determinism-first debugging
+        means a precise repro beats a vague description.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: A clear and concise description of the bug.
+      placeholder: When I run `paos ...`, the task is reported done but no evidence_refs are stored.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Exact commands and inputs. Use the demo adapter if possible (no API keys needed).
+      placeholder: |
+        1. node apps/cli/dist/index.js init --data-dir=data
+        2. node apps/cli/dist/index.js adapter doctor
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: dropdown
+    id: gate
+    attributes:
+      label: Which release gate does this affect?
+      options:
+        - "G0 - core invariants / migrations"
+        - "G1 - demo loop / recovery"
+        - "G2 - real CLI adapter"
+        - "G3 - WorkBuddy cloud adapter"
+        - "G4 - docs / trial / release"
+        - "Other / unknown"
+  - type: input
+    id: version
+    attributes:
+      label: Commit / version
+      placeholder: git rev-parse HEAD

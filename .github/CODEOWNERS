@@ -1,0 +1,9 @@
+# Default reviewers for the public kernel.
+# See CONTRIBUTING.md for the review policy.
+
+*                 @your-org/maintainers
+/packages/core/   @your-org/maintainers
+/packages/db/     @your-org/maintainers
+/packages/runtime/ @your-org/maintainers
+/migrations/      @your-org/maintainers
+/.github/         @your-org/maintainers

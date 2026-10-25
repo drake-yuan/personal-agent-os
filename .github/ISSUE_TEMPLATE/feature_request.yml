@@ -1,0 +1,34 @@
+name: Feature request
+description: Propose a new capability, workflow, or adapter
+title: "[feat]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or opportunity
+      description: What gap does this fill? Link to the relevant ADR if one exists.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed approach
+      description: How should it work? Keep it deterministic where it gates a state transition.
+    validations:
+      required: true
+  - type: textarea
+    id: invariants
+    attributes:
+      label: New invariants / tests
+      description: What must hold true, and how will we test it?
+    validations:
+      required: false
+  - type: dropdown
+    id: adr
+    attributes:
+      label: Needs an ADR?
+      options:
+        - "Yes - new ADR required"
+        - "No - covered by an existing ADR"
+        - "Unsure"
