@@ -6,7 +6,7 @@ This is **not another agent framework**. It is the scheduling, governance, and m
 
 > **v0.1 positioning:** an orchestrator of *trusted local user operations*. It is **not** a sandboxed runtime for untrusted agents or third-party plugins. See [Known limitations](#known-limitations-v01--read-before-trusting).
 
-[![CI](https://github.com/your-org/personal-agent-os/actions/workflows/ci.yml/badge.svg)](https://github.com/your-org/personal-agent-os/actions/workflows/ci.yml)
+[![CI](https://github.com/drake-yuan/personal-agent-os/actions/workflows/ci.yml/badge.svg)](https://github.com/drake-yuan/personal-agent-os/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 [![Node](https://img.shields.io/badge/node-%3E%3D22.5-brightgreen.svg)](https://nodejs.org)
 [![pnpm](https://img.shields.io/badge/pnpm-%3E%3D9-orange.svg)](https://pnpm.io)
@@ -76,7 +76,7 @@ Three properties make it different from "yet another agent runner":
 ## Installation
 
 ```bash
-git clone https://github.com/your-org/personal-agent-os.git
+git clone https://github.com/drake-yuan/personal-agent-os.git
 cd personal-agent-os/code
 pnpm install
 pnpm build

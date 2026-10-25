@@ -28,5 +28,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 See `README.md -> Known limitations`. Notable: no OS-level sandbox in v0.1,
 real CLI adapters (codex / claude-code) are PoC-stage pending on-machine probe.
 
-[Unreleased]: https://github.com/your-org/personal-agent-os/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/your-org/personal-agent-os/releases/tag/v0.1.0
+[Unreleased]: https://github.com/drake-yuan/personal-agent-os/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/drake-yuan/personal-agent-os/releases/tag/v0.1.0
