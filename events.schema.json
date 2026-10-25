@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "paos://schemas/paos-events/1.0.0",
+  "title": "PAOS SSE Event Envelope v1.0.0",
+  "description": "Every SSE event carries a monotonic event_id for Last-Event-ID resume. Heartbeats are comments; a stale cursor returns CURSOR_EXPIRED and the client re-pulls a snapshot.",
+  "type": "object",
+  "required": ["event_id", "at", "event_type", "workflow_run_id", "detail"],
+  "properties": {
+    "event_id": { "type": "integer", "minimum": 1 },
+    "at": { "type": "string", "minLength": 10 },
+    "event_type": {
+      "type": "string",
+      "enum": [
+        "run.created", "run.step.started", "run.step.succeeded", "run.step.failed",
+        "run.dispatch.accepted", "run.dispatch.unknown_outcome", "run.approval.requested",
+        "run.approval.decided", "run.verification.passed", "run.verification.failed",
+        "run.status.changed", "run.reconciled"
+      ]
+    },
+    "workflow_run_id": { "type": "string", "minLength": 1 },
+    "step_id": { "type": "string" },
+    "payload_ref": { "type": "string" },
+    "payload_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "detail": { "type": "string", "minLength": 1 }
+  },
+  "additionalProperties": false
+}

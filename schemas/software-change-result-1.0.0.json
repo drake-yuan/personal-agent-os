@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "paos://schemas/software-change-result/1.0.0",
+  "title": "SoftwareChangeResult v1.0.0",
+  "type": "object",
+  "required": ["root_cause", "files_changed", "tests_run"],
+  "properties": {
+    "root_cause": { "type": "string", "minLength": 1, "maxLength": 2000 },
+    "files_changed": { "type": "array", "items": { "type": "string" }, "maxItems": 100 },
+    "tests_run": { "type": "integer", "minimum": 0 },
+    "tests_passed": { "type": "integer", "minimum": 0 }
+  },
+  "additionalProperties": false
+}

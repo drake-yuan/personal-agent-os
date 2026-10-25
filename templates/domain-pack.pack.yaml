@@ -1,0 +1,22 @@
+id: my-domain
+version: 0.1.0
+description: Declaration-only domain pack. Extends the object model; never introduces arbitrary code execution.
+
+objects:
+  - name: MyObject
+    fields:
+      id: text
+      status: enum[active, closed]
+
+default_workflows:
+  - workflows/software-change.yaml
+
+default_skills:
+  - skills/weekly-review/SKILL.md
+
+privacy:
+  data_classification: personal
+  external_data_transfer: deny
+
+compatibility:
+  min_core_version: 0.2.0

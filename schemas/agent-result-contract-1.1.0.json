@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "paos://schemas/agent-result-contract/1.1.0",
+  "title": "AgentResultContract v1.1",
+  "description": "What an adapter is allowed to report: observations only. Adapters never emit 'accepted' - that verdict belongs to the Runtime/Verifier (design §8.3).",
+  "type": "object",
+  "required": [
+    "result_version", "provider", "provider_status", "transport_status",
+    "raw_result_ref", "artifacts", "usage", "errors"
+  ],
+  "properties": {
+    "result_version": { "const": "1.1" },
+    "provider": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "provider_status": {
+      "type": "string",
+      "enum": ["completed", "failed", "cancelled", "pending", "idle", "planning", "working", "archived", "deleted"]
+    },
+    "transport_status": { "enum": ["ok", "timeout", "connection_error", "protocol_error"] },
+    "native_run": {
+      "type": "object",
+      "properties": {
+        "run_id": { "type": "string", "maxLength": 128 },
+        "exit_code": { "type": "integer", "minimum": 0, "maximum": 255 },
+        "log_ref": { "type": "string", "maxLength": 128 }
+      },
+      "additionalProperties": false
+    },
+    "raw_result_ref": { "type": "string", "minLength": 1, "maxLength": 128 },
+    "artifacts": {
+      "type": "array",
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "required": ["artifact_id", "kind", "media_type", "bytes", "sha256", "source", "trust_level", "data_classification", "created_at", "retention_policy"],
+        "properties": {
+          "artifact_id": { "type": "string", "minLength": 1, "maxLength": 64 },
+          "kind": { "type": "string", "maxLength": 64 },
+          "media_type": { "type": "string", "maxLength": 128 },
+          "bytes": { "type": "integer", "minimum": 0 },
+          "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "source": { "type": "string", "maxLength": 128 },
+          "trust_level": { "enum": ["user_provided", "external_untrusted", "agent_generated", "system_generated"] },
+          "data_classification": { "enum": ["public", "personal", "sensitive", "secret"] },
+          "created_at": { "type": "string", "minLength": 10, "maxLength": 40 },
+          "retention_policy": { "type": "string", "maxLength": 64 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "usage": {
+      "type": "object",
+      "required": ["duration_s", "tokens", "cost_usd", "cost_source"],
+      "properties": {
+        "duration_s": { "type": ["number", "null"], "minimum": 0 },
+        "tokens": { "type": ["integer", "null"], "minimum": 0 },
+        "cost_usd": { "type": ["number", "null"], "minimum": 0 },
+        "cost_source": { "enum": ["metered", "subscription", "credits", "unknown"] }
+      },
+      "additionalProperties": false
+    },
+    "errors": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "type": "object",
+        "required": ["code", "message"],
+        "properties": {
+          "code": { "type": "string", "maxLength": 64 },
+          "message": { "type": "string", "maxLength": 1000 },
+          "retryable": { "type": "boolean" }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

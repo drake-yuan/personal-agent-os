@@ -1,0 +1,132 @@
+openapi: 3.1.0
+info:
+  title: Personal Agent OS API
+  version: 0.2.0
+  description: >
+    Local-first REST API for the Personal Agent OS kernel. Binds to 127.0.0.1/::1 only.
+    All endpoints require a Bearer installation_secret; browser callers must pass
+    Host/Origin/Sec-Fetch-Site validation. Loopback is not authentication.
+servers:
+  - url: http://127.0.0.1:8787/api/v1
+security:
+  - bearerAuth: []
+paths:
+  /tasks:
+    get:
+      summary: List tasks (filter by status/domain)
+      parameters:
+        - { name: status, in: query, schema: { type: string } }
+        - { name: domain, in: query, schema: { type: string } }
+      responses:
+        '200': { description: Task list }
+        '401': { $ref: '#/components/responses/AuthRequired' }
+    post:
+      summary: Create a task (inbox)
+      parameters:
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string } }
+      responses:
+        '201': { description: Created }
+        '401': { $ref: '#/components/responses/AuthRequired' }
+        '409': { $ref: '#/components/responses/VersionConflict' }
+  /tasks/{id}/transition:
+    post:
+      summary: Apply a state-machine transition
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { name: If-Match, in: header, required: true, description: ETag / expected_version, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [to, reason_code]
+              properties:
+                to: { type: string }
+                reason_code: { type: string }
+      responses:
+        '200': { description: Transitioned }
+        '409': { $ref: '#/components/responses/IllegalTransition' }
+        '412': { description: Precondition failed (expected_version mismatch) }
+  /workflow-runs:
+    post:
+      summary: Start a workflow run (linear v0.1)
+      parameters:
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string } }
+      responses:
+        '201': { description: Run created (frozen snapshot persisted) }
+        '401': { $ref: '#/components/responses/AuthRequired' }
+  /workflow-runs/{id}/events:
+    get:
+      summary: SSE event stream (resume with Last-Event-ID)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+        - { name: Last-Event-ID, in: header, schema: { type: integer } }
+      responses:
+        '200': { description: text/event-stream, monotonic event_id }
+  /approvals/{id}/decision:
+    post:
+      summary: Approve or deny (R3 human decision; R4 requires token + nonce)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              properties:
+                decision: { enum: [approved, denied] }
+                decided_by: { type: string }
+                token: { type: string, description: R4 only }
+      responses:
+        '200': { description: Recorded }
+        '409': { description: Approval already consumed / superseded }
+  /adapters/{id}/doctor:
+    get:
+      summary: Five-level adapter diagnostics
+      responses:
+        '200': { description: installed/authenticated/capabilities/enforced_isolation/live_connectivity }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  responses:
+    AuthRequired:
+      description: Missing or invalid Bearer token
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    IllegalTransition:
+      description: ILLEGAL_TRANSITION
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    VersionConflict:
+      description: VERSION_CONFLICT
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+  schemas:
+    Error:
+      type: object
+      required: [code, message, request_id, retryable]
+      properties:
+        code:
+          type: string
+          enum:
+            - AUTH_REQUIRED
+            - FORBIDDEN
+            - ILLEGAL_TRANSITION
+            - CONTRACT_INVALID
+            - ADAPTER_UNAVAILABLE
+            - UNKNOWN_EXTERNAL_OUTCOME
+            - RATE_LIMITED
+            - VERSION_CONFLICT
+            - SCOPE_VIOLATION
+            - CHECK_FAILED
+        message: { type: string }
+        request_id: { type: string }
+        retryable: { type: boolean }

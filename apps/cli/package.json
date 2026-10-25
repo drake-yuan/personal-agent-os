@@ -1,0 +1,25 @@
+{
+  "name": "@paos/cli",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "paos": "./dist/index.js"
+  },
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@paos/contracts": "workspace:*",
+    "@paos/core": "workspace:*",
+    "@paos/db": "workspace:*",
+    "@paos/runtime": "workspace:*",
+    "@paos/policy": "workspace:*",
+    "@paos/adapters": "workspace:*",
+    "@paos/evidence": "workspace:*",
+    "@paos/evaluation": "workspace:*"
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "demo-task-1": {
+    "providerTaskId": "demo-task-1",
+    "providerStatus": "completed",
+    "exitCode": 0,
+    "artifacts": [
+      {
+        "artifact_id": "art_change_summary",
+        "kind": "change_summary",
+        "sha256": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+        "media_type": "application/json",
+        "bytes": 2048
+      },
+      {
+        "artifact_id": "art_test_report",
+        "kind": "test_report",
+        "sha256": "fcde2b2edba56bf408601fb721fe9b5c338d10ee429ea04fae5511b68fbf8fb9",
+        "media_type": "application/json",
+        "bytes": 1024
+      }
+    ]
+  },
+  "demo-task-fail": {
+    "providerTaskId": "demo-task-fail",
+    "providerStatus": "failed",
+    "exitCode": 1,
+    "artifacts": []
+  }
+}

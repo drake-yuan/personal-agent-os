@@ -1,0 +1,42 @@
+id: my-workflow
+version: 1.0.0
+domain: work
+description: clarify -> delegate -> verify -> human gate (linear; no branches, no parallelism)
+
+steps:
+  - id: clarify
+    kind: note
+    skill: skills/requirement-clarify/SKILL.md
+    input_schema_ref: paos://schemas/clarify-input/1.0.0
+    output_schema_ref: paos://schemas/clarify-output/1.0.0
+    timeout: 300
+    on_failure: abort
+
+  - id: delegate
+    kind: agent-delegate
+    adapter: demo-adapter
+    contract: contracts/my-task.json
+    idempotency: required
+    retry_policy:
+      max_attempts: 2
+      backoff: exponential
+      retryable_codes: [TRANSPORT_ERROR]
+    timeout: 1800
+    on_failure: review_required
+
+  - id: verify
+    kind: verify
+    checks: [protocol, product, business]
+
+  - id: human-gate
+    kind: approval
+    risk: R3
+
+acceptance:
+  - checker: git.changed_paths_within
+    args:
+      scope_paths: ["src/", "tests/"]
+  - checker: process.exit_code_equals
+    args:
+      check_ref: test
+      expected: 0

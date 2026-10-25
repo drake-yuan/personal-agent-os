@@ -1,0 +1,45 @@
+{
+  "contract_version": "1.1",
+  "task_id": "task_demo_001",
+  "workflow_run_id": "wfr_demo_001",
+  "step_id": "delegate",
+  "objective": "Fix the flaky test in tests/auth.spec.ts and report the root cause",
+  "domain": "work",
+  "workflow": { "id": "software-change", "version": "1.0.0" },
+  "inputs": {
+    "workspace": "D:/repos/paos-demo",
+    "artifact_refs": [],
+    "trust_labels": ["user_provided"],
+    "context_refs": []
+  },
+  "requirements": {
+    "required_capabilities": ["fs.read.workspace", "fs.write.workspace"],
+    "scope_paths": ["src/", "tests/"],
+    "data_classification": "personal"
+  },
+  "limits": {
+    "timeout_seconds": 1800,
+    "max_steps": 40,
+    "max_tool_calls": 80,
+    "max_cost": { "amount": null, "currency": null, "source": "unknown" }
+  },
+  "expected_output": {
+    "format": "json",
+    "schema_id": "paos://schemas/software-change-result/1.0.0",
+    "required_artifacts": ["change_summary", "test_report"]
+  },
+  "acceptance": [
+    { "id": "files-in-scope", "checker": "git.changed_paths_within", "args": { "scope_paths": ["src/", "tests/"] } },
+    { "id": "tests-pass", "checker": "process.exit_code_equals", "args": { "check_ref": "test", "expected": 0 } },
+    { "id": "summary-valid", "checker": "artifact.schema_valid", "args": { "artifact": "change_summary", "schema_id": "paos://schemas/change-summary/1.0.0" } }
+  ],
+  "policy": {
+    "risk_level": "R2",
+    "external_data_transfer": "deny",
+    "approval_ref": null
+  },
+  "idempotency": {
+    "dispatch_key": "sha256(wfr_demo_001-delegate-contract_hash)",
+    "delivery_semantics": "at_least_once_with_reconciliation"
+  }
+}

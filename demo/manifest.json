@@ -1,0 +1,28 @@
+{
+  "id": "codex-adapter",
+  "kind": "agent-adapter",
+  "version": "0.1.0",
+  "source": "builtin",
+  "transport": "cli",
+  "requires": {
+    "binaries": ["codex"],
+    "env": []
+  },
+  "capabilities": [
+    "fs.read.workspace",
+    "fs.write.workspace",
+    "process.exec",
+    "structured_output"
+  ],
+  "unsupported": ["resume", "server_idempotency"],
+  "enforced_isolation": "workspace-fs",
+  "permissions": {
+    "filesystem": "workspace-only",
+    "network": "restricted"
+  },
+  "healthcheck": "dist/doctor.js",
+  "schemas": {
+    "task_contract": "agent-task-contract-1.1",
+    "result_contract": "agent-result-contract-1.1"
+  }
+}

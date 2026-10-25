@@ -1,0 +1,31 @@
+# dependencies
+node_modules/
+
+# build output
+dist/
+
+# test / tool caches
+.vitest-cache/
+.tmp/
+
+# database and runtime state (rebuilt from code + logs)
+data/*.db
+data/*.db-wal
+data/*.db-shm
+data/eval-runs/
+
+# secrets - never commit
+.env
+.env.*
+*.pem
+*.key
+installation.secret
+
+# OS
+.DS_Store
+Thumbs.db
+
+# editors
+.idea/
+.vscode/
+*.swp

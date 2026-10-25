@@ -1,0 +1,9 @@
+{
+  "tasks.status": ["inbox", "triaged", "planned", "ready", "running", "waiting_approval", "cancel_requested", "review_required", "blocked", "deferred", "failed", "done", "cancelled", "rejected"],
+  "tasks.risk": ["R0", "R1", "R2", "R3", "R4"],
+  "workflow_runs.status": ["planned", "running", "waiting_approval", "cancel_requested", "paused", "unknown_outcome", "succeeded", "partial", "failed", "cancelled", "reconciled"],
+  "run_steps.status": ["pending", "running", "succeeded", "failed", "skipped", "cancelled"],
+  "run_steps.kind": ["note", "agent-delegate", "verify", "approval", "human-input"],
+  "dispatch_intents.state": ["pending", "dispatching", "accepted", "rejected", "unknown_outcome", "reconciled"],
+  "approvals.decision": ["pending", "approved", "denied", "expired", "consumed", "superseded"]
+}

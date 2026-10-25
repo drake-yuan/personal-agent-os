@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "paos://schemas/agent-task-contract/1.1.0",
+  "title": "AgentTaskContract v1.1",
+  "description": "Frozen task contract handed to an external agent. additionalProperties: false everywhere except declared extension objects.",
+  "type": "object",
+  "required": [
+    "contract_version", "task_id", "workflow_run_id", "step_id", "objective",
+    "domain", "workflow", "inputs", "requirements", "limits", "expected_output",
+    "acceptance", "policy", "idempotency"
+  ],
+  "properties": {
+    "contract_version": { "const": "1.1" },
+    "task_id": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "workflow_run_id": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "step_id": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "objective": { "type": "string", "minLength": 1, "maxLength": 2000 },
+    "domain": {
+      "type": "string",
+      "enum": ["work", "career", "learning", "venture", "life", "investing", "platform"]
+    },
+    "workflow": {
+      "type": "object",
+      "required": ["id", "version"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+        "version": { "type": "string", "pattern": "^\\d+\\.\\d+\\.\\d+$" }
+      },
+      "additionalProperties": false
+    },
+    "inputs": {
+      "type": "object",
+      "required": ["workspace", "artifact_refs", "trust_labels"],
+      "properties": {
+        "workspace": { "type": "string", "minLength": 1 },
+        "artifact_refs": { "type": "array", "items": { "type": "string" }, "maxItems": 100 },
+        "trust_labels": {
+          "type": "array",
+          "items": { "enum": ["user_provided", "external_untrusted", "agent_generated", "system_generated"] },
+          "maxItems": 4
+        },
+        "context_refs": { "type": "array", "items": { "type": "string" }, "maxItems": 100 }
+      },
+      "additionalProperties": false
+    },
+    "requirements": {
+      "type": "object",
+      "required": ["required_capabilities", "scope_paths", "data_classification"],
+      "properties": {
+        "required_capabilities": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "fs.read.workspace", "fs.write.workspace", "process.exec",
+              "network.egress.allowed_hosts", "external.send", "credentials.use"
+            ]
+          },
+          "maxItems": 6
+        },
+        "scope_paths": { "type": "array", "items": { "type": "string" }, "maxItems": 100 },
+        "data_classification": { "enum": ["public", "personal", "sensitive", "secret"] }
+      },
+      "additionalProperties": false
+    },
+    "limits": {
+      "type": "object",
+      "required": ["timeout_seconds", "max_steps", "max_tool_calls", "max_cost"],
+      "properties": {
+        "timeout_seconds": { "type": "integer", "minimum": 1, "maximum": 86400 },
+        "max_steps": { "type": "integer", "minimum": 1, "maximum": 10000 },
+        "max_tool_calls": { "type": "integer", "minimum": 1, "maximum": 100000 },
+        "max_cost": {
+          "type": "object",
+          "required": ["amount", "currency", "source"],
+          "properties": {
+            "amount": { "type": ["number", "null"], "minimum": 0 },
+            "currency": { "type": ["string", "null"], "maxLength": 8 },
+            "source": { "enum": ["metered", "subscription", "credits", "unknown"] }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "expected_output": {
+      "type": "object",
+      "required": ["format", "schema_id", "required_artifacts"],
+      "properties": {
+        "format": { "enum": ["json", "markdown", "text", "files"] },
+        "schema_id": { "type": "string", "format": "schema-id" },
+        "required_artifacts": { "type": "array", "items": { "type": "string" }, "minItems": 1, "maxItems": 50 }
+      },
+      "additionalProperties": false
+    },
+    "acceptance": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "checker", "args"],
+        "properties": {
+          "id": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+          "checker": { "type": "string", "pattern": "^[a-z]+\\.[a-z_]+$" },
+          "args": { "type": "object" },
+          "description": { "type": "string", "maxLength": 500 }
+        },
+        "additionalProperties": false
+      },
+      "maxItems": 50
+    },
+    "policy": {
+      "type": "object",
+      "required": ["risk_level", "external_data_transfer", "approval_ref"],
+      "properties": {
+        "risk_level": { "enum": ["R0", "R1", "R2", "R3", "R4"] },
+        "external_data_transfer": { "enum": ["deny", "allow-with-approval", "allow-public-only"] },
+        "approval_ref": { "type": ["string", "null"], "maxLength": 64 }
+      },
+      "additionalProperties": false
+    },
+    "idempotency": {
+      "type": "object",
+      "required": ["dispatch_key", "delivery_semantics"],
+      "properties": {
+        "dispatch_key": { "type": "string", "minLength": 8, "maxLength": 128 },
+        "delivery_semantics": { "enum": ["at_least_once_with_reconciliation", "at_most_once", "exactly_once_verified"] }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

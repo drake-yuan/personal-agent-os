@@ -1,0 +1,37 @@
+# Career domain pack (declaration only - design §16.3)
+#
+# Domain packs are restricted declarations: they extend the object
+# model and reference default workflows/skills. They NEVER introduce
+# arbitrary code execution.
+
+id: career
+version: 0.1.0
+description: Job search pipeline - campaigns, opportunities, applications, resume versions, interviews, offers.
+
+objects:
+  - name: Campaign
+    fields: { id: text, target_role: text, status: enum[active,paused,closed] }
+  - name: JobOpportunity
+    fields: { id: text, company: text, source: text, jd_ref: artifact_ref }
+  - name: Application
+    fields: { id: text, opportunity_id: text, resume_version: text, status: enum[drafted,submitted,interviewing,offer,rejected] }
+  - name: ResumeVersion
+    fields: { id: text, variant: text, artifact_ref: artifact_ref }
+  - name: Interview
+    fields: { id: text, application_id: text, stage: text, at: text }
+  - name: Offer
+    fields: { id: text, application_id: text, comp: text, expires_at: text }
+
+default_workflows:
+  - workflows/software-change.yaml
+
+default_skills:
+  - skills/weekly-review/SKILL.md
+
+privacy:
+  # Career data never leaves the machine without explicit approval.
+  data_classification: personal
+  external_data_transfer: deny
+
+compatibility:
+  min_core_version: 0.2.0

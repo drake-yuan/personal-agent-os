@@ -1,0 +1,27 @@
+{
+  "name": "personal-agent-os",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local-first personal OS kernel: scheduling, governance and memory layer above your existing agent fleet",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=22.5.0",
+    "pnpm": ">=9"
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "test:count": "pnpm -r test 2>&1 | grep -E 'Tests +[0-9]+' || true",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "evals:deterministic": "node packages/evaluation/dist/run-gates.js",
+    "drift:check": "node packages/contracts/dist/drift-check.js",
+    "sqlite:version": "node -e \"const{DatabaseSync}=require('node:sqlite');console.log(new DatabaseSync(':memory:').prepare('select sqlite_version() v').get().v)\""
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}

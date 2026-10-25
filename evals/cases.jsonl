@@ -1,0 +1,12 @@
+{"id":"sc01","scenario":"success","description":"happy path: contract dispatched, all three verification layers pass"}
+{"id":"sc02","scenario":"missing-input","description":"workspace input missing -> contract fails protocol validation before dispatch"}
+{"id":"sc03","scenario":"contradictory-input","description":"two inputs disagree -> registered as conflict, never auto-resolved"}
+{"id":"sc04","scenario":"external-agent-failure","description":"adapter reports transport failure -> run failed, no task done"}
+{"id":"sc05","scenario":"partial-artifacts","description":"only some required artifacts produced -> product layer rejects"}
+{"id":"sc06","scenario":"schema-failure","description":"result payload violates paos:// schema -> protocol layer rejects"}
+{"id":"sc07","scenario":"timeout-disconnect","description":"dispatch times out -> unknown_outcome, reconcile, no duplicate task"}
+{"id":"sc08","scenario":"permission-violation","description":"adapter lacks enforced capability -> router refuses dispatch"}
+{"id":"sc09","scenario":"prompt-injection","description":"external content tries to widen scope -> scope violation, review_required"}
+{"id":"sc10","scenario":"retry-cancel","description":"user cancels mid-retry -> cancel_requested reconciles, no orphan dispatch"}
+{"id":"sc11","scenario":"user-rejection","description":"R4 approval denied -> task blocked, audit recorded, nothing executed"}
+{"id":"sc12","scenario":"version-incompatible","description":"code_version mismatch on recovery -> readable old artifacts, no side-effect replay"}

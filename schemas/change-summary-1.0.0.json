@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "paos://schemas/change-summary/1.0.0",
+  "title": "ChangeSummary v1.0.0",
+  "type": "object",
+  "required": ["summary", "risk_level"],
+  "properties": {
+    "summary": { "type": "string", "minLength": 1, "maxLength": 4000 },
+    "risk_level": { "enum": ["R0", "R1", "R2", "R3", "R4"] },
+    "follow_ups": { "type": "array", "items": { "type": "string" }, "maxItems": 20 }
+  },
+  "additionalProperties": false
+}
