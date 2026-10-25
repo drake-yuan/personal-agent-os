@@ -1,13 +1,13 @@
 /**
- * Dispatch outbox (design §11.2, P0-03).
+ * Dispatch outbox (design Section 11.2, P0-03).
  *
  * Exactly-once delivery to an external executor cannot be promised
  * unilaterally. The outbox makes the honest version enforceable:
  *
- *   pending ──dispatch──▶ dispatching ──resp ok──▶ accepted ──reconcile──▶ reconciled
- *                              │
- *                              ├──resp err──▶ rejected (retryable: attempt_count+1)
- *                              └──timeout/crash──▶ unknown_outcome ──reconcile/人工──▶ reconciled
+ *   pending --dispatch--> dispatching --resp ok--> accepted --reconcile--> reconciled
+ *                              |
+ *                              +--resp err--> rejected (retryable: attempt_count+1)
+ *                              +--timeout/crash--> unknown_outcome --reconcile/human--> reconciled
  *
  * Rules:
  *  1. The intent row is committed BEFORE any network call (same tx).
@@ -99,7 +99,7 @@ export function mayAutoRetry(intent: DispatchIntent): boolean {
   );
 }
 
-/** Exactly the five fault-injection points from design §11.2 rule 6. */
+/** Exactly the five fault-injection points from design Section 11.2 rule 6. */
 export type FaultPoint =
   | 'crash-before-send'      // intent committed, no network call happened
   | 'crash-after-send-before-response'

@@ -3,7 +3,7 @@ import { evaluatePolicy, mayTransfer } from '../src/policy.js';
 
 const ENFORCED = ['fs.read.workspace', 'fs.write.workspace', 'external.send'] as const;
 
-describe('policy engine (§12.2)', () => {
+describe('policy engine (Section 12.2)', () => {
   it('refuses when the adapter cannot enforce the required capability', () => {
     const v = evaluatePolicy({
       actionType: 'external-send', resourceScope: [], dataClassification: 'personal',
@@ -57,7 +57,7 @@ describe('policy engine (§12.2)', () => {
   });
 });
 
-describe('data transfer gate (§12.3)', () => {
+describe('data transfer gate (Section 12.3)', () => {
   it('public may leave; personal needs approval; sensitive/secret never', () => {
     expect(mayTransfer('public', false).allowed).toBe(true);
     expect(mayTransfer('personal', false).allowed).toBe(false);

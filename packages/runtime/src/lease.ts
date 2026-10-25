@@ -1,5 +1,5 @@
 /**
- * Worker lease with compare-and-set (design §11.3, P1-01).
+ * Worker lease with compare-and-set (design Section 11.3, P1-01).
  *
  * Single active executor per run: a lease is claimed in one
  * transaction with a CAS UPDATE. Heartbeats extend the lease. The
@@ -53,7 +53,7 @@ export class InMemoryLeaseStore implements LeaseStore {
 
 /**
  * Heartbeat timeout threshold = adapter max silent interval x 2
- * (design §11.3). Never a hardcoded constant.
+ * (design Section 11.3). Never a hardcoded constant.
  */
 export function heartbeatTimeoutMs(adapterMaxSilentMs: number): number {
   return adapterMaxSilentMs * 2;

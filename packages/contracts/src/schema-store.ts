@@ -2,7 +2,7 @@
  * paos:// schema store.
  *
  * Canonical schemas live at the repository root `schemas/` directory
- * (design §18.1). A paos:// id resolves to `schemas/<name>-<semver>.json`.
+ * (design Section 18.1). A paos:// id resolves to `schemas/<name>-<semver>.json`.
  * Remote URLs are never fetched (SSRF / dependency-pollution defence).
  */
 import { readFileSync } from 'node:fs';

@@ -1,5 +1,5 @@
 /**
- * Single source of truth for every PAOS enum (design doc V2.0 §3).
+ * Single source of truth for every PAOS enum (design doc V2.0 Section 3).
  *
  * CI runs a drift check: the TS enums, the SQLite CHECK-constraint
  * documentation in packages/db, the JSON Schemas under schemas/ and the
@@ -54,7 +54,7 @@ export const RISK_DEF = {
   R4: 'high-impact / irreversible (money, delete, formal send, trade)',
 } as const;
 
-/** Approval requirement per risk level (§3 mapping table, MUST). */
+/** Approval requirement per risk level (Section 3 mapping table, MUST). */
 export const RISK_APPROVAL: Record<RiskLevel, 'auto-recorded' | 'human-required' | 'human-token-nonce'> = {
   R0: 'auto-recorded',
   R1: 'auto-recorded',

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "paos://schemas/agent-result-contract/1.1.0",
   "title": "AgentResultContract v1.1",
-  "description": "What an adapter is allowed to report: observations only. Adapters never emit 'accepted' - that verdict belongs to the Runtime/Verifier (design §8.3).",
+  "description": "What an adapter is allowed to report: observations only. Adapters never emit 'accepted' - that verdict belongs to the Runtime/Verifier (design Section 8.3).",
   "type": "object",
   "required": [
     "result_version", "provider", "provider_status", "transport_status",

@@ -1,5 +1,5 @@
 /**
- * Task state machine v2 - the complete transition matrix (design §7.1).
+ * Task state machine v2 - the complete transition matrix (design Section 7.1).
  *
  * The table below IS the specification: every legal edge has a test,
  * every illegal edge must be rejected. Key invariants:

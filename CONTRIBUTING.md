@@ -4,13 +4,13 @@ Thanks for caring about a local-first, verifiable personal OS kernel. This docum
 
 ## Ground Rules
 
-1. **Determinism first.** Anything that gates a merge must be deterministic. Model-quality evals are threshold-based and reported separately — never blended with deterministic gates.
+1. **Determinism first.** Anything that gates a merge must be deterministic. Model-quality evals are threshold-based and reported separately  -  never blended with deterministic gates.
 2. **The state machine is the spec.** Every legal transition edge has a test; every illegal edge must be rejected. If you change `TRANSITIONS`, the matrix tests must change with it.
 3. **Enums have one home.** `packages/contracts/src/enums.ts` generates the TS types, the SQLite CHECK documentation, and the JSON schemas. `pnpm drift:check` must stay green.
 4. **No arbitrary execution.** New checkers go through the whitelist registry with an args schema. No shell strings, no `eval`.
 5. **Observations, not verdicts.** Adapters report what happened; only Runtime/Verifier derives `accepted` / `rejected` / `needs_human` / `unknown_outcome`.
 6. **AI assistants do not auto-commit or auto-push.** A human reviews every diff before it becomes a commit.
-7. **English comments, conventional commits**: `feat(scope): …` / `fix(scope): …` with a Cause/Impact body.
+7. **English comments, conventional commits**: `feat(scope): ...` / `fix(scope): ...` with a Cause/Impact body.
 
 ## Development Setup
 
@@ -22,7 +22,7 @@ pnpm drift:check
 pnpm evals:deterministic
 ```
 
-Node ≥ 22.5 (uses `node:sqlite`), pnpm ≥ 9. On sandboxed Windows shells, point `TEMP`/`TMP` into the workspace before running tests.
+Node >= 22.5 (uses `node:sqlite`), pnpm >= 9. On sandboxed Windows shells, point `TEMP`/`TMP` into the workspace before running tests.
 
 ## PR Checklist
 

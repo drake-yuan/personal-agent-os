@@ -1,5 +1,5 @@
 /**
- * Artifact store with opaque IDs (design §12.4, P1-08).
+ * Artifact store with opaque IDs (design Section 12.4, P1-08).
  *
  * The API never receives or exposes absolute storage paths. Every
  * artifact gets an opaque id; the DB row holds path + sha256 + bytes.

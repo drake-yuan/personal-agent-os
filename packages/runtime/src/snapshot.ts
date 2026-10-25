@@ -1,6 +1,6 @@
 /**
  * Workspace snapshot: full-tree enumeration for artifact escape
- * detection (design §8.5, P0-07).
+ * detection (design Section 8.5, P0-07).
  *
  * Baseline and post-execution snapshots enumerate staged / unstaged /
  * untracked / deleted / renamed files plus per-file sha256. Paths are

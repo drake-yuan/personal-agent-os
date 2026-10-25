@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { mapProviderStatus, runStatusToTaskObservation } from '../src/status-map.js';
 
-describe('provider status mapping (§7.2)', () => {
+describe('provider status mapping (Section 7.2)', () => {
   it('WorkBuddy completed keeps the run running - it is NOT done', () => {
     // completed != done: the run only succeeds after OS-side verification
     expect(mapProviderStatus('workbuddy', 'completed')).toBe('running');

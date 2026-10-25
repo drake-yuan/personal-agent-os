@@ -1,5 +1,5 @@
 /**
- * Three-layer verification engine (design §8.4, P0-04).
+ * Three-layer verification engine (design Section 8.4, P0-04).
  *
  *   Protocol (deterministic): schema validation -> exit code -> required
  *     fields non-empty -> unknown fields rejected.

@@ -1,5 +1,5 @@
 /**
- * Deterministic eval gates (design §17, P1-09).
+ * Deterministic eval gates (design Section 17, P1-09).
  *
  * Two strictly separated classes:
  *  - DETERMINISTIC GATES: 100% must pass before merge (schema, state

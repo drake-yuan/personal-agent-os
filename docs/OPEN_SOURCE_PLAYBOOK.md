@@ -1,94 +1,95 @@
-# Personal Agent OS — 开源发布行动手册（Playbook）
+# Personal Agent OS - Open Source Release Playbook
 
-> 回答的问题是：**这个项目如何真正开源出去，而不是「把代码传上去」。**
-> 上游依据：《Personal Agent OS 详细设计落地文档 V2.0》§19（开源发布策略）+ §20（G0–G4 门）+ §18.3（数据隔离）。
-
----
-
-## 0. 一句话结论
-
-**先过门，再发布。** 开源不是把 `code/` 推到 GitHub 那一刻，而是「陌生人能在 30 分钟内、无密钥、无陪访跑通第一条任务闭环，且跑的过程中没有任何个人数据出库」。按设计文档的五阶段门（G0–G4）逐关验收，任何一门不过就停在原地修门。
+> **The question this document answers:** how this project actually goes open source, rather than "push the code to GitHub and hope".
+> Upstream basis: *Personal Agent OS Detailed Design Document V2.0*, Section 19 (open source release strategy), Section 20 (G0-G4 gates), Section 18.3 (data isolation).
 
 ---
 
-## 1. 发布前硬门（来自设计 §20，全部 MUST）
+## 0. One-sentence conclusion
 
-| 门 | 内容 | 当前状态（2026-10-25） |
+**Pass the gates first, publish second.** Open-sourcing is not the moment `code/` is pushed to GitHub; it is the state where "a stranger can complete the first task loop in 30 minutes, with no keys and no guided tour, and no personal data leaves the database while they do it". Walk the five release gates (G0-G4) from the design document one by one; if any gate fails, stop and fix the gate.
+
+---
+
+## 1. Pre-release hard gates (design Section 20, all MUST)
+
+| Gate | Content | Status (2026-10-25) |
 |---|---|---|
-| **G0** | 核心状态/风险/契约无双重定义；每项不变量有测试；空库建库 + v1 fixture 迁移 + 重跑安全 + 失败可回滚 | ✅ 已过：enums 单一生成源 + drift check；22 表基线 + 迁移账本 + 幂等重跑 + 校验和拒绝；137 测试 |
-| **G1** | 无密钥 Demo 端到端；强制杀进程 + 断网可恢复；任务不因 Agent 声称完成而自动完成；越权 API/路径测试通过 | ✅ 已过：DemoAdapter fixture 闭环；outbox 五故障注入；done 仅 Verifier 可写；snapshot 越界检测 |
-| **G2** | 一个本地 CLI Adapter 的 probe/plan/dispatch/stream/cancel/reconcile/mapResult + 参数按本机实测 | ⚠️ 部分：接口与 Demo 实现已落；**真实 CLI 适配器（codex/claude-code）待本机 probe 实测** |
-| **G3** | WorkBuddy PoC：OAuth 审核、真机链路、凭证不泄露、出站预览、超时不重复创建 | ⬜ 未过（依赖应用审核，G0 硬门；handoff 为兜底） |
-| **G4** | README 首屏权限模型/平台/Adapter 状态/限制；安全 checklist；3–5 人无陪同试用；发布件可备份/恢复/升级/诊断 | ⬜ 未过（README 已按 §19.1 写；试用未做） |
+| **G0** | No dual definitions of core state/risk/contract; every invariant has a test; empty-DB bootstrap + v1 fixture migration + safe re-run + rollback on failure | PASSED: single-source enums + drift check; 22-table baseline + migration ledger + idempotent replay + checksum rejection; 137 tests |
+| **G1** | Zero-secret demo end-to-end; recovers from forced kill + network cut; tasks never auto-complete on an agent's claim; unauthorized API/path tests pass | PASSED: DemoAdapter fixture loop; five outbox fault injections; `done` writable only by the Verifier; snapshot escape detection |
+| **G2** | One local CLI adapter's probe/plan/dispatch/stream/cancel/reconcile/mapResult with parameters verified on the actual machine | PARTIAL: interface and demo implementation landed; **real CLI adapters (codex/claude-code) still need on-machine probe verification** |
+| **G3** | WorkBuddy PoC: OAuth review, real link, credential containment, outbound preview, no duplicate creation on timeout | NOT PASSED (depends on app review, which is a G0 hard gate; `handoff` is the fallback) |
+| **G4** | README first screen shows permission model / platform / adapter status / limitations; security checklist; 3-5 unaccompanied trial users; release artifact can be backed up / restored / upgraded / diagnosed | NOT PASSED (README written per Section 19.1; trial not yet done) |
 
-**止损条件（设计 §20）：** G1 未过（本人或试用者不愿每日使用）暂停后续，先修操作层。
+**Stop-loss condition (design Section 20):** if G1 fails - the author or a trial user is unwilling to use it daily - pause everything and fix the operational layer first.
 
 ---
 
-## 2. 仓库治理配置（已完成）
+## 2. Repository governance configuration (done)
 
-| 文件 | 作用 |
+| File | Purpose |
 |---|---|
-| `LICENSE` | Apache-2.0（ADR D12：专利授权明确） |
-| `README.md` | 首屏定位陈述 + 权限模型 + 支持平台 + Adapter 实际状态 + 已知限制 + 不支持能力（评审 §9 阶段 4） |
-| `SECURITY.md` | 漏洞报告流程 + 诚实边界（v0.1 不是沙箱）+ 威胁/缓解对照表 |
-| `CONTRIBUTING.md` | 七条 ground rules + PR checklist + good first issues |
-| `.github/workflows/ci.yml` | `build → test → typecheck → drift:check → evals:deterministic → sqlite 版本断言 → gitleaks secret 扫描 → pnpm audit` |
-| `.gitignore` | `data/`、`dist/`、`.env*`、`*.pem/key`、`installation.secret` 全量忽略（设计 §18.3：公开仓库零个人数据） |
-| `demo/` | 只用合成数据（Alex Chen / Acme / Project Aurora） |
+| `LICENSE` | Apache-2.0 (ADR D12: explicit patent grant) |
+| `README.md` | First-screen positioning statement + permission model + supported platforms + actual adapter status + known limitations + unsupported capabilities (review Section 9, stage 4) |
+| `SECURITY.md` | Vulnerability reporting process + honest boundary (v0.1 is not a sandbox) + threat/mitigation table |
+| `CONTRIBUTING.md` | Seven ground rules + PR checklist + good first issues |
+| `.github/workflows/ci.yml` | `build -> test -> typecheck -> drift:check -> evals:deterministic -> sqlite version assertion -> gitleaks secret scan -> pnpm audit` |
+| `.gitignore` | `data/`, `dist/`, `.env*`, `*.pem/key`, `installation.secret` fully ignored (design Section 18.3: the public repo contains zero personal data) |
+| `demo/` | Synthetic data only (Alex Chen / Acme / Project Aurora) |
 
 ---
 
-## 3. 数据隔离三闸（设计 §18.3，发布前逐条过）
+## 3. Data isolation, three latches (design Section 18.3, walk before publishing)
 
-1. **gitignore 闸**：`me/`、`data/`、任何真实资产路径不进版本库。
-2. **secret 扫描闸**：CI 每次 PR 跑 gitleaks；本地提交前也跑一次。
-3. **合成数据闸**：`demo/`、fixtures、evals cases 只允许虚构实体；提交前人工过一遍 `git diff --cached`。
-
----
-
-## 4. 冷启动与首发 UX（设计 §19.3）
-
-首体验只走通**一条**闭环：`npx paos init` 四问初始化 → `paos demo`（无密钥 fixture）→ `paos adapter doctor` → 第一个真实任务全程 UI 引导。其余视图空态 + 导航，不一次上线七个复杂页面。
-
-**试用纪律**：找 3–5 位未参与开发的用户，记录阻塞点与完成时长；改进依据是「首次成功完成的任务」，不是页面数量或 Star 数。
+1. **gitignore latch:** `me/`, `data/`, and any real asset paths never enter version control.
+2. **Secret-scan latch:** CI runs gitleaks on every PR; run it once locally before committing too.
+3. **Synthetic-data latch:** `demo/`, fixtures, and eval cases may only contain fictional entities; eyeball `git diff --cached` before every commit.
 
 ---
 
-## 5. 许可证与贡献者治理（设计 §19.2）
+## 4. Cold start and first-release UX (design Section 19.3)
 
-- Apache-2.0；**接受外部贡献前先明确 CLA 策略，不事后改规则**（当前 README 已如实标注「CLA 待定，规则不会追溯修改」）。
-- 贡献入口：`good first issue`（manifest / evals case / Domain Pack 模板）；Discussions 先行；ADR 公开可评论。
+The first experience walks exactly **one** loop: `npx paos init` four-question setup -> `paos demo` (zero-key fixtures) -> `paos adapter doctor` -> first real task with full UI guidance. Every other view ships as empty state + navigation; do not launch seven complex pages at once.
 
----
-
-## 6. 真实性纪律（设计 §19.4，README 同款）
-
-必须持续标注的内容：
-- 适配器参数是 2026-10 文档快照，按本机已装版本实测后才可去掉 `[未验证]` 标签；
-- WorkBuddy OAuth 需审核且 G3 前未实测；
-- Evals 指标不证明「Agent 变聪明」；
-- 项目未经大规模社区验证；
-- v0.1 无 OS 级沙箱。
-
-**把局限写清楚是信任策略的一部分，不是谦虚。**
+**Trial discipline:** find 3-5 users who did not participate in development; record blockers and completion time. The improvement signal is "the first task a user completes independently", not page count or star count.
 
 ---
 
-## 7. 发布路线图（建议节奏）
+## 5. License and contributor governance (design Section 19.2)
 
-| 周 | 动作 | 出口标准 |
+- Apache-2.0; **settle the CLA policy before accepting external contributions, never change the rules retroactively** (the README currently states this honestly: "CLA pending, rules will not change retroactively").
+- Contribution entry points: `good first issue` (manifest / eval case / domain pack templates); Discussions first; ADRs are public and commentable.
+
+---
+
+## 6. Honesty discipline (design Section 19.4, same wording as README)
+
+Content that must stay labeled:
+
+- Adapter parameters are a 2026-10 documentation snapshot; the `[unverified]` label may only be removed after on-machine testing against installed versions;
+- WorkBuddy OAuth requires review and is untested before G3;
+- Eval metrics do not prove "the agent got smarter";
+- The project has not been validated at community scale;
+- v0.1 has no OS-level sandbox.
+
+**Writing the limitations down clearly is part of the trust strategy, not modesty.**
+
+---
+
+## 7. Release roadmap (suggested cadence)
+
+| Week | Action | Exit criteria |
 |---|---|---|
-| W+1 | 真实 CLI 适配器 probe 实测（codex/claude-code 本机参数）→ 关 G2 | 七种场景（成功/非零退出/超时/取消/输出格式错/权限拒绝/scope 违规）有可重现测试 |
-| W+2 | ADR 逐票批准（设计 §4 的 28 条 proposed → accepted） | `docs/50_决策日志/` 有对应票记 |
-| W+3 | 安全测试套件落地（注入/越界/凭证扫描/CSRF/供应链/恶意 manifest） | G4 checklist 全绿 |
-| W+4 | 3–5 人无陪同试用 + 修复阻塞 | 试用者独立跑通 Demo |
-| W+5 | 打 tag v0.1.0，发布；同步 workbuddy-mcp 路线图 | 发布件可备份、恢复、升级、诊断 |
+| W+1 | On-machine probe verification for real CLI adapters (codex/claude-code local parameters) -> close G2 | Seven scenarios (success / non-zero exit / timeout / cancel / wrong output format / permission denied / scope violation) have reproducible tests |
+| W+2 | Ratify ADRs one by one (28 `proposed` items from design Section 4 -> `accepted`) | Corresponding votes recorded in the private decision log |
+| W+3 | Land the security test suite (injection / escape / credential scan / CSRF / supply chain / malicious manifest) | G4 checklist fully green |
+| W+4 | 3-5 unaccompanied trial users + fix blockers | Trial users run the demo independently |
+| W+5 | Tag v0.1.0 and publish; sync the workbuddy-mcp roadmap | Release artifact can be backed up, restored, upgraded, diagnosed |
 
 ---
 
-## 8. 仓库位置与命名
+## 8. Repository location and naming
 
-- 公开仓库名：`personal-agent-os`（设计 §18.1）
-- 当前工程根：`D:\Personal Agent OS\code\`（git 已初始化；个人 docs/assets 在库外，零个人数据入库）
-- 后续可拆出的公开子仓（可选，不阻塞主线）：`paos-schemas`（paos:// schema 仓库）、`paos-domain-packs`（领域包模板）
+- Public repository name: `personal-agent-os` (design Section 18.1)
+- Current engineering root: `D:\Personal Agent OS\code\` (git initialized; personal docs/assets stay outside the repo - zero personal data committed)
+- Optional future public sub-repos (not blocking the main line): `paos-schemas` (paos:// schema repository), `paos-domain-packs` (domain pack templates)

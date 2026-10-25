@@ -1,5 +1,5 @@
 /**
- * Adapter registry + doctor five-level diagnostics (design §10.5, P2-07).
+ * Adapter registry + doctor five-level diagnostics (design Section 10.5, P2-07).
  *
  * Levels: installed -> authenticated -> capabilities (declared vs
  * enforced) -> enforced_isolation -> live_connectivity. `--version`

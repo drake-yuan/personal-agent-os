@@ -20,7 +20,7 @@ afterAll(() => {
   rmSync(outside, { recursive: true, force: true });
 });
 
-describe('workspace snapshot escape detection (§8.5, P0-07)', () => {
+describe('workspace snapshot escape detection (Section 8.5, P0-07)', () => {
   it('records per-file sha256', () => {
     const snap = takeSnapshot(root);
     expect(snap.entries.get('src/a.ts')?.kind).toBe('file');

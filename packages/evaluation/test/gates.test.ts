@@ -19,7 +19,7 @@ function repoRoot(): string {
 const CASES: GateCase[] = readFileSync(path.join(repoRoot(), 'evals/cases.jsonl'), 'utf8')
   .split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l) as GateCase);
 
-describe('deterministic eval gates (§17, P1-09)', () => {
+describe('deterministic eval gates (Section 17, P1-09)', () => {
   it('the shipped case file covers all 12 scenarios exactly once', () => {
     expect(CASES).toHaveLength(12);
     const report = coverageReport(CASES);

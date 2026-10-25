@@ -1,5 +1,5 @@
 /**
- * CheckerSpec registry (design §8.2, P0-04).
+ * CheckerSpec registry (design Section 8.2, P0-04).
  *
  * Acceptance = named, versioned, whitelisted checkers. Arbitrary shell
  * commands and arbitrary JS are forbidden. Every checker declares its

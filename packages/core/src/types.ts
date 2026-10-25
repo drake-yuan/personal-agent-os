@@ -1,5 +1,5 @@
 /**
- * Domain model v2 (design V2.0 §3, §6, §7).
+ * Domain model v2 (design V2.0 Section 3, Section 6, Section 7).
  *
  * Types are structural mirrors of the SQLite baseline DDL - the DB is
  * the single source of truth for state, this module is the in-memory

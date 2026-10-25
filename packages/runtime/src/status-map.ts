@@ -1,12 +1,12 @@
 /**
- * Provider status mapping (design §7.2, MUST).
+ * Provider status mapping (design Section 7.2, MUST).
  *
  * The single mapProviderStatus() lives here. Adapters NEVER write task
  * status directly - they report observations; Runtime derives state.
  *
  * WorkflowRun-level mapping: a provider `completed` does NOT make the
  * run `succeeded` - the run stays `running` until the OS-side verify
- * step passes and an acceptance record exists (§6.4 invariant). The
+ * step passes and an acceptance record exists (Section 6.4 invariant). The
  * task-level observation `review_required` is derived separately via
  * runStatusToTaskObservation.
  *

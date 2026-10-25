@@ -5,7 +5,7 @@ import path from 'node:path';
 
 // The bundled node:sqlite ships SQLite 3.51.2, just below the 3.51.3
 // WAL-reset gate. Tests exercise the gate logic itself; the override
-// documents the explicit escape hatch (design §6.3 rule 6).
+// documents the explicit escape hatch (design Section 6.3 rule 6).
 process.env.PAOS_MIN_SQLITE_VERSION = '3.51.2';
 
 const { openDatabase, sqliteVersion, compareVersions, migrate, appliedVersions, backupDatabase } = await import('../src/index.js');

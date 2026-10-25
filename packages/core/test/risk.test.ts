@@ -30,7 +30,7 @@ describe('risk classification: deny-first', () => {
   });
 });
 
-describe('v1 -> v2 migration mapping (§3 mapping table)', () => {
+describe('v1 -> v2 migration mapping (Section 3 mapping table)', () => {
   it('maps risk levels one level up (local write becomes R2, external R3, irreversible R4)', () => {
     expect(migrateRisk('R0')).toBe('R0');
     expect(migrateRisk('R1')).toBe('R2');

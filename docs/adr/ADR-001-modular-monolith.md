@@ -16,7 +16,7 @@ boundaries without paying distributed-system costs.
 
 ## Decision
 
-Modular monolith. CI enforces `core ← runtime ← adapters`; `contracts` is depended
+Modular monolith. CI enforces `core <- runtime <- adapters`; `contracts` is depended
 on by everything and depends on nothing; `domains/*` may only depend on
 core/runtime/contracts.
 

@@ -1,5 +1,5 @@
 /**
- * paos CLI (design §15.3).
+ * paos CLI (design Section 15.3).
  *
  * The CLI never touches the DB directly for domain logic: it goes
  * through the same service layer the Web app uses, with the same
@@ -28,7 +28,7 @@ interface ParsedArgs {
   flags: Record<string, string | boolean>;
 }
 
-/** Two-word commands per the CLI contract (design §15.3). */
+/** Two-word commands per the CLI contract (design Section 15.3). */
 const COMPOUND_COMMANDS = ['adapter doctor', 'plugin inspect'];
 
 export function parseArgs(argv: string[]): ParsedArgs {

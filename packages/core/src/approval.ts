@@ -1,5 +1,5 @@
 /**
- * Approval gate v2 (design §12.1, §12.3).
+ * Approval gate v2 (design Section 12.1, Section 12.3).
  *
  * Rules:
  *  - R0-R2 are policy auto-approved and recorded; R3 requires a human

@@ -1,7 +1,7 @@
 -- ============================================================
--- Personal Agent OS — schema v2.0 baseline (migration 0001)
+-- Personal Agent OS  -  schema v2.0 baseline (migration 0001)
 -- Complete baseline, executable against an empty database.
--- Target SQLite runtime >= 3.51.3 (WAL-reset fix, design §6.3 rule 6).
+-- Target SQLite runtime >= 3.51.3 (WAL-reset fix, design Section 6.3 rule 6).
 -- Enum CHECK constraints mirror packages/contracts/src/enums.ts
 -- (single source of truth; CI drift check).
 -- ============================================================
@@ -272,7 +272,7 @@ CREATE TABLE IF NOT EXISTS audit_events (
 );
 CREATE INDEX IF NOT EXISTS idx_audit_run ON audit_events(workflow_run_id, id);
 
--- append-only: UPDATE/DELETE triggers (design §12.4)
+-- append-only: UPDATE/DELETE triggers (design Section 12.4)
 CREATE TRIGGER IF NOT EXISTS trg_audit_no_update
 BEFORE UPDATE ON audit_events
 BEGIN

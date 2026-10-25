@@ -1,5 +1,5 @@
 /**
- * Policy engine (design §12.2, P0-02).
+ * Policy engine (design Section 12.2, P0-02).
  *
  * Natural language is only an auxiliary signal. The final decision is
  * made on structured inputs: action type + resource scope + data
@@ -70,7 +70,7 @@ export function evaluatePolicy(input: PolicyInput): PolicyVerdict {
   return { allowed: true, risk, approval };
 }
 
-/** Data classification gate for outbound transfer (design §12.3). */
+/** Data classification gate for outbound transfer (design Section 12.3). */
 export function mayTransfer(
   classification: DataClassification,
   userApprovedPersonal: boolean,

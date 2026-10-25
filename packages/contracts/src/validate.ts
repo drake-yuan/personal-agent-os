@@ -3,7 +3,7 @@
  *
  * PAOS validates every contract, manifest and artifact against a fixed
  * in-repo schema. The subset below is deliberately small and total: no
- * network $ref, no remote schema downloads (SSRF defence, design §12.4),
+ * network $ref, no remote schema downloads (SSRF defence, design Section 12.4),
  * no regex backreferences. Fail-closed: anything the subset does not
  * understand is reported as an error, never silently accepted.
  */

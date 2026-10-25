@@ -19,7 +19,7 @@ and context.
 
 SQLite in WAL mode with `foreign_keys = ON`; migration ledger with checksums;
 backups via the SQLite backup API (`VACUUM INTO`), never raw `.db` copies that
-ignore the WAL. Runtime gate: SQLite ≥ 3.51.3 (WAL-reset fix).
+ignore the WAL. Runtime gate: SQLite >= 3.51.3 (WAL-reset fix).
 
 ## Consequences
 

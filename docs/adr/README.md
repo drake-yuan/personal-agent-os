@@ -1,7 +1,7 @@
 # Architecture Decision Records
 
-ADRs follow the five-element rule (design V2.0 §4): **决定 / 备选 / 理由 / 后果 / 测试**。
-All ADRs start as `proposed`; they become `accepted` only when ratified in the decision log (docs/50_决策日志 in the private OS).
+ADRs follow the five-element rule (design V2.0, Section 4): **Decision / Alternatives / Rationale / Consequences / Tests**.
+All ADRs start as `proposed`; they become `accepted` only when ratified in the private decision log of the parent OS.
 
 | # | Decision | Status |
 |---|---|---|

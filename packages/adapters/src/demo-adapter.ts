@@ -1,5 +1,5 @@
 /**
- * Demo adapter - the zero-secret fixture executor (design §19.3).
+ * Demo adapter - the zero-secret fixture executor (design Section 19.3).
  *
  * It exists so the first-run experience needs no API keys: contracts
  * are executed against recorded fixtures under demo/fixtures/. It is

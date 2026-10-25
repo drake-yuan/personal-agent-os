@@ -5,7 +5,7 @@ import path from 'node:path';
 import { parseArgs, cmdInit, cmdStatus, cmdDoctor, cmdPluginInspect } from '../src/index.js';
 
 // Node 22.22 bundles SQLite 3.51.2, just below the 3.51.3 WAL-reset
-// gate. Use the documented escape hatch for tests (design §6.3 rule 6).
+// gate. Use the documented escape hatch for tests (design Section 6.3 rule 6).
 process.env.PAOS_MIN_SQLITE_VERSION = '3.51.2';
 
 let dir: string;

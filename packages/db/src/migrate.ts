@@ -1,5 +1,5 @@
 /**
- * Migration runner (design §6.3).
+ * Migration runner (design Section 6.3).
  *
  * - Each migration runs in a transaction; the ledger row
  *   (version, name, checksum, applied_at) is written in the SAME

@@ -1,5 +1,5 @@
 /**
- * SQLite open + runtime version gate (design §6.3 rule 6, P1-02).
+ * SQLite open + runtime version gate (design Section 6.3 rule 6, P1-02).
  *
  * The runtime must be >= 3.51.3 (WAL-reset fix). Bundled node:sqlite
  * ships a pinned SQLite; if the bundled version is below the gate the

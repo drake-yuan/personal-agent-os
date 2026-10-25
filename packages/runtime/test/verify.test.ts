@@ -15,7 +15,7 @@ function ctx(overrides: Partial<CheckContext> = {}): CheckContext {
 
 const CALL: CheckerCall = { id: 'c1', checker: 'process.exit_code_equals', args: { check_ref: 'test', expected: 0 } };
 
-describe('three-layer verification engine (§8.4)', () => {
+describe('three-layer verification engine (Section 8.4)', () => {
   it('unregistered checker fails closed', () => {
     const r = runChecker({ id: 'c', checker: 'shell.exec', args: {} }, ctx());
     expect(r.passed).toBe(false);

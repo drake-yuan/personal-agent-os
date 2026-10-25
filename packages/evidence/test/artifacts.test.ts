@@ -8,7 +8,7 @@ let dir: string;
 beforeAll(() => { dir = mkdtempSync(path.join(tmpdir(), 'paos-artifacts-')); });
 afterAll(() => { rmSync(dir, { recursive: true, force: true }); });
 
-describe('artifact store (opaque IDs, §12.4)', () => {
+describe('artifact store (opaque IDs, Section 12.4)', () => {
   it('stores content under an opaque id and reads it back', () => {
     const store = new ArtifactStore(dir);
     const stored = store.put({ kind: 'change_summary', mediaType: 'application/json', content: '{"a":1}' });

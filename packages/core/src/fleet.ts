@@ -1,5 +1,5 @@
 /**
- * Fleet registry (design §5, §12.2).
+ * Fleet registry (design Section 5, Section 12.2).
  *
  * Executors are replaceable resources. Only ENFORCED capabilities may
  * gate hard security decisions; declared capabilities are advertising.

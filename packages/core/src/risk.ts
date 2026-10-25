@@ -1,5 +1,5 @@
 /**
- * Risk classification, deny-first (design §3).
+ * Risk classification, deny-first (design Section 3).
  *
  * classifyAction() maps a planned action to R0-R4. Unrecognized
  * actions default to R4 (v1.0 was R3; V2.0 tightens): the OS refuses
@@ -33,7 +33,7 @@ export function humanGateThreshold(): RiskLevel {
 }
 
 /**
- * v1 -> v2 risk mapping (design §3, MUST). Applied once by migration
+ * v1 -> v2 risk mapping (design Section 3, MUST). Applied once by migration
  * 0001 and kept here as the single mapping function.
  */
 export function migrateRisk(v1: 'R0' | 'R1' | 'R2' | 'R3'): RiskLevel {
@@ -45,7 +45,7 @@ export function migrateRisk(v1: 'R0' | 'R1' | 'R2' | 'R3'): RiskLevel {
   }
 }
 
-/** v1 task status -> v2 task status (design §6.3 rule 5). */
+/** v1 task status -> v2 task status (design Section 6.3 rule 5). */
 export function migrateTaskStatus(v1: string): string {
   switch (v1) {
     case 'awaiting_approval': return 'waiting_approval';

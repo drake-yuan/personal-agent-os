@@ -1,4 +1,4 @@
-# Career domain pack (declaration only - design §16.3)
+# Career domain pack (declaration only - design Section 16.3)
 #
 # Domain packs are restricted declarations: they extend the object
 # model and reference default workflows/skills. They NEVER introduce

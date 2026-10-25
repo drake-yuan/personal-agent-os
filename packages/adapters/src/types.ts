@@ -1,5 +1,5 @@
 /**
- * Unified adapter interface (design §10.1).
+ * Unified adapter interface (design Section 10.1).
  *
  * The interface is split so that adapters can only ever report
  * observations: probe / plan / dispatch / stream / cancel / reconcile /
