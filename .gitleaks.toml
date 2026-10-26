@@ -1,0 +1,18 @@
+# Gitleaks configuration for Personal Agent OS.
+#
+# Extends the built-in default rules, then suppresses known false positives:
+#   - pnpm-lock.yaml "integrity" fields are high-entropy base64 but are not secrets
+#   - demo/, fixtures/, and evals/ contain only synthetic, fictional data
+#
+# Exclusions are PATH-based on purpose: a real secret committed in source or docs
+# is still scanned. Only structural/synthetic files are allowlisted.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Lockfile integrity hashes and synthetic test/demo data are not secrets"
+paths = [
+  '''(?i).*pnpm-lock\.yaml''',
+  '''(?i).*/(fixtures|demo|evals)/.*''',
+]

@@ -7,7 +7,7 @@ on:
 
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
@@ -43,8 +43,8 @@ jobs:
 
       - name: Secret scan (gitleaks)
         uses: gitleaks/gitleaks-action@v2
-        env:
-          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+        # Auto-detects .gitleaks.toml in the repo root. Open-source gitleaks
+        # needs no license; lockfile + synthetic data are allowlisted by path.
 
       - name: Dependency audit
         run: pnpm audit --audit-level high
