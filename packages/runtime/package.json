@@ -18,6 +18,8 @@
   },
   "dependencies": {
     "@paos/contracts": "workspace:*",
-    "@paos/core": "workspace:*"
+    "@paos/core": "workspace:*",
+    "@paos/policy": "workspace:*",
+    "@paos/db": "workspace:*"
   }
 }

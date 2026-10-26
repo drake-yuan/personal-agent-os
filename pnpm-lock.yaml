@@ -102,6 +102,12 @@ importers:
       '@paos/core':
         specifier: workspace:*
         version: link:../core
+      '@paos/db':
+        specifier: workspace:*
+        version: link:../db
+      '@paos/policy':
+        specifier: workspace:*
+        version: link:../policy
 
 packages:
 

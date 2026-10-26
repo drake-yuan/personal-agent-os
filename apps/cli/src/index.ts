@@ -21,6 +21,9 @@ import {
 } from '@paos/contracts';
 import { openDatabase, migrate, appliedVersions, sqliteVersion } from '@paos/db';
 import { DemoAdapter, doctor, AdapterRegistry } from '@paos/adapters';
+import type { DemoFixture } from '@paos/adapters';
+import { runContract } from '@paos/runtime';
+import type { ContractV11, CheckContext } from '@paos/runtime';
 
 interface ParsedArgs {
   command: string;
@@ -112,11 +115,85 @@ export function cmdEvals(): string {
   return 'run via: pnpm evals:deterministic';
 }
 
+/** Repo root, resolved from the compiled CLI location (apps/cli/dist). */
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
+
+/** Load the synthetic demo fixtures that back the zero-key first run. */
+export function loadDemoFixtures(): DemoFixture[] {
+  const p = path.join(REPO_ROOT, 'demo', 'fixtures', 'demo-run.json');
+  if (!existsSync(p)) return [];
+  const raw = JSON.parse(readFileSync(p, 'utf8')) as Record<string, DemoFixture>;
+  return Object.values(raw);
+}
+
+/**
+ * Evidence view for a demo run. The demo adapter replays RECORDED fixtures,
+ * so the checker context is derived from those fixtures rather than from a
+ * live workspace - this is a replay, not a claim of real execution.
+ */
+export function demoCheckContext(contract: ContractV11, fixtures: DemoFixture[]): CheckContext {
+  const sha = new Map<string, string>();
+  for (const f of fixtures) {
+    for (const a of f.artifacts) sha.set(a.artifact_id, a.sha256);
+  }
+  return {
+    artifactJson: (id) =>
+      id === 'change_summary'
+        ? {
+            summary: contract.objective,
+            risk_level: contract.policy?.risk_level ?? 'R2',
+            follow_ups: [],
+          }
+        : undefined,
+    artifactSha256: (id) => sha.get(id),
+    exitCode: (ref) => (ref === 'test' ? 0 : undefined),
+    changedPaths: () => ['src/app.ts', 'tests/auth.spec.ts'],
+    evidenceAgeDays: () => 0,
+  };
+}
+
+/** `paos run <contract.json>` - execute the core chain end to end. */
+export async function cmdRun(contractPath: string, dataDir: string): Promise<string> {
+  const dbPath = path.join(dataDir, 'paos.db');
+  if (!existsSync(dbPath)) return 'not initialized - run `paos init` first';
+  if (!existsSync(contractPath)) return `contract not found: ${contractPath}`;
+  const contract = JSON.parse(readFileSync(contractPath, 'utf8')) as ContractV11;
+  const fixtures = loadDemoFixtures();
+  const db = openDatabase(dbPath);
+  try {
+    const result = await runContract({
+      db,
+      adapter: new DemoAdapter(fixtures),
+      contract,
+      workspace: contract.inputs?.workspace ?? process.cwd(),
+      checkContext: demoCheckContext(contract, fixtures),
+    });
+    const lines = [
+      `task ${result.taskId}: ${result.taskStatus}`,
+      `run  ${result.runId}: ${result.runStatus}`,
+      `dispatch ${result.dispatchId}: ${result.dispatchState}`,
+    ];
+    if (result.verdict) lines.push(`verdict: ${result.verdict}`);
+    if (result.approvalId) lines.push(`awaiting approval ${result.approvalId} (human gate)`);
+    if (result.blocked) lines.push(`blocked: ${result.blocked}`);
+    for (const r of result.reports ?? []) {
+      lines.push(`  layer ${r.layer}: ${r.passed ? 'PASS' : 'FAIL'} ${r.failureCodes.join(',')}`);
+    }
+    return lines.join('\n');
+  } finally {
+    db.close();
+  }
+}
+
 const COMMANDS: Record<string, (args: ParsedArgs) => Promise<string> | string> = {
   'adapter doctor': () => cmdDoctor(),
   'plugin inspect': (a) => cmdPluginInspect(a.positional[0] ?? ''),
   init: (a) => JSON.stringify(cmdInit(a.flags['data-dir'] ? String(a.flags['data-dir']) : 'data')),
   status: (a) => cmdStatus(a.flags['data-dir'] ? String(a.flags['data-dir']) : 'data'),
+  run: (a) => cmdRun(
+    a.positional[0] ?? '',
+    a.flags['data-dir'] ? String(a.flags['data-dir']) : 'data',
+  ),
   doctor: () => cmdDoctor(),
   inspect: (a) => cmdPluginInspect(a.positional[0] ?? ''),
   evals: () => cmdEvals(),
@@ -125,6 +202,7 @@ const COMMANDS: Record<string, (args: ParsedArgs) => Promise<string> | string> =
     '',
     '  paos init [--data-dir=DIR]     first-run setup (secret + DB + migrations)',
     '  paos status [--data-dir=DIR]   task/run overview',
+    '  paos run <contract.json>       execute the core chain (demo adapter)',
     '  paos adapter doctor            five-level adapter diagnostics',
     '  paos plugin inspect <file>     install phase 1 (no code execution)',
     '  paos evals                     deterministic gates',

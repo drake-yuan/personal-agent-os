@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Core chain orchestration `runContract()` (packages/runtime): contract -> policy ->
+  task -> outbox dispatch -> observation -> three-layer verification -> verdict -> done.
+- Persistence layer (packages/db): repositories for tasks, workflow runs,
+  dispatch intents and approvals, with a per-table column allowlist for updates.
+- `paos run <contract.json>` CLI command - executes the chain against the demo
+  adapter and persists every state change.
+
+### Changed
+- Demo contract objective reworded to a scoped local edit so the documented
+  first loop actually completes (deny-first NL classification keeps unknown
+  objectives at R4, which correctly parks them on the human gate).
+
 ## [0.1.0] - 2026-10-25
 
 ### Added

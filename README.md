@@ -102,16 +102,19 @@ node apps/cli/dist/index.js init --data-dir=data
 # 3. Inspect the local installation
 node apps/cli/dist/index.js status --data-dir=data
 
-# 4. Diagnose adapters (five-level health check)
+# 4. Execute the core chain end to end (demo adapter, no API keys)
+node apps/cli/dist/index.js run demo/contracts/software-change-task.json --data-dir=data
+
+# 5. Diagnose adapters (five-level health check)
 node apps/cli/dist/index.js adapter doctor
 
-# 5. Inspect a plugin manifest (install phase 1: zero code execution)
+# 6. Inspect a plugin manifest (install phase 1: zero code execution)
 node apps/cli/dist/index.js plugin inspect demo/manifest.json
 
-# 6. Run deterministic eval gates
+# 7. Run deterministic eval gates
 pnpm evals:deterministic
 
-# 7. Run the enum/DDL/schema drift check
+# 8. Run the enum/DDL/schema drift check
 pnpm drift:check
 ```
 
