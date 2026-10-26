@@ -15,10 +15,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `paos run <contract.json>` CLI command - executes the chain against the demo
   adapter and persists every state change.
 
+### Added
+- `resolveApproval()` (packages/runtime): the exit from the risk gate. Re-verifies
+  the action/scope binding before release, requires an explicit token for R4,
+  consumes the approval exactly once, and can resume the chain immediately.
+- `paos approve` / `paos approvals` CLI commands.
+- `demo/contracts/software-change-gated.json`: an R4 contract that exercises the
+  gate -> approve -> complete path.
+
 ### Changed
 - Demo contract objective reworded to a scoped local edit so the documented
   first loop actually completes (deny-first NL classification keeps unknown
   objectives at R4, which correctly parks them on the human gate).
+- runContract() split into intake and `runDispatchPhase()` so an approved run
+  resumes through the same dispatch path instead of duplicating it.
+- CLI flags accept space-separated values (`--contract file`) as well as
+  `--key=value`; CLI errors are reported cleanly with exit code 1.
 
 ## [0.1.0] - 2026-10-25
 

@@ -22,8 +22,9 @@ import {
 import { openDatabase, migrate, appliedVersions, sqliteVersion } from '@paos/db';
 import { DemoAdapter, doctor, AdapterRegistry } from '@paos/adapters';
 import type { DemoFixture } from '@paos/adapters';
-import { runContract } from '@paos/runtime';
+import { runContract, resolveApproval } from '@paos/runtime';
 import type { ContractV11, CheckContext } from '@paos/runtime';
+import { pendingApprovals } from '@paos/db';
 
 interface ParsedArgs {
   command: string;
@@ -40,10 +41,22 @@ export function parseArgs(argv: string[]): ParsedArgs {
   const rest = compound ? argv.slice(2) : argv.slice(1);
   const positional: string[] = [];
   const flags: Record<string, string | boolean> = {};
-  for (const arg of rest) {
+  for (let i = 0; i < rest.length; i += 1) {
+    const arg = rest[i] ?? '';
     if (arg.startsWith('--')) {
-      const [key = '', value] = arg.slice(2).split('=');
-      flags[key] = value ?? true;
+      const [key = '', inlineValue] = arg.slice(2).split('=');
+      if (inlineValue !== undefined) {
+        flags[key] = inlineValue;
+        continue;
+      }
+      // Space-separated value: only consume it when the next token is a value.
+      const next = rest[i + 1];
+      if (next !== undefined && !next.startsWith('--')) {
+        flags[key] = next;
+        i += 1;
+      } else {
+        flags[key] = true;
+      }
     } else {
       positional.push(arg);
     }
@@ -185,6 +198,73 @@ export async function cmdRun(contractPath: string, dataDir: string): Promise<str
   }
 }
 
+/** `paos approvals` - list approvals waiting on a human decision. */
+export function cmdApprovals(dataDir: string): string {
+  const dbPath = path.join(dataDir, 'paos.db');
+  if (!existsSync(dbPath)) return 'not initialized - run `paos init` first';
+  const db = openDatabase(dbPath);
+  try {
+    const rows = pendingApprovals(db);
+    if (rows.length === 0) return 'no pending approvals';
+    return rows
+      .map((r) => `${r.id}  ${r.risk}  run=${r.workflow_run_id}  step=${r.step_id}  ${r.action}`)
+      .join('\n');
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * `paos approve <id> --contract <file> [--token T] [--deny] [--by NAME]`
+ * The exit from the risk gate. Approving without an adapter records the
+ * decision and returns the task to running; supplying the demo adapter
+ * (default) resumes the chain immediately.
+ */
+export async function cmdApprove(args: ParsedArgs): Promise<string> {
+  const dataDir = args.flags['data-dir'] ? String(args.flags['data-dir']) : 'data';
+  const dbPath = path.join(dataDir, 'paos.db');
+  if (!existsSync(dbPath)) return 'not initialized - run `paos init` first';
+  const approvalId = args.positional[0] ?? '';
+  if (!approvalId) return 'usage: paos approve <approval-id> --contract <file> [--token T] [--deny]';
+
+  const contractPath = args.flags['contract'] ? String(args.flags['contract']) : '';
+  const deny = Boolean(args.flags['deny']);
+  const token = args.flags['token'] ? String(args.flags['token']) : undefined;
+  const decidedBy = args.flags['by'] ? String(args.flags['by']) : 'human';
+
+  let contract: ContractV11 | undefined;
+  if (contractPath) {
+    if (!existsSync(contractPath)) return `contract not found: ${contractPath}`;
+    contract = JSON.parse(readFileSync(contractPath, 'utf8')) as ContractV11;
+  }
+
+  const db = openDatabase(dbPath);
+  try {
+    const fixtures = loadDemoFixtures();
+    const result = await resolveApproval({
+      db,
+      approvalId,
+      decision: deny ? 'denied' : 'approved',
+      decidedBy,
+      token,
+      contract,
+      // Resume immediately when a contract is supplied.
+      adapter: contract && !deny ? new DemoAdapter(fixtures) : undefined,
+      workspace: contract?.inputs?.workspace ?? process.cwd(),
+      checkContext: contract ? demoCheckContext(contract, fixtures) : undefined,
+    });
+    const lines = [
+      `approval ${result.approvalId}: ${result.decision}`,
+      `task ${result.taskId}: ${result.taskStatus}`,
+      `run: ${result.runStatus}`,
+    ];
+    if (result.verdict) lines.push(`verdict: ${result.verdict}`);
+    return lines.join('\n');
+  } finally {
+    db.close();
+  }
+}
+
 const COMMANDS: Record<string, (args: ParsedArgs) => Promise<string> | string> = {
   'adapter doctor': () => cmdDoctor(),
   'plugin inspect': (a) => cmdPluginInspect(a.positional[0] ?? ''),
@@ -197,12 +277,17 @@ const COMMANDS: Record<string, (args: ParsedArgs) => Promise<string> | string> =
   doctor: () => cmdDoctor(),
   inspect: (a) => cmdPluginInspect(a.positional[0] ?? ''),
   evals: () => cmdEvals(),
+  approve: (a) => cmdApprove(a),
+  approvals: (a) => cmdApprovals(a.flags['data-dir'] ? String(a.flags['data-dir']) : 'data'),
   help: () => [
     'paos - Personal Agent OS CLI (v0.2)',
     '',
     '  paos init [--data-dir=DIR]     first-run setup (secret + DB + migrations)',
     '  paos status [--data-dir=DIR]   task/run overview',
     '  paos run <contract.json>       execute the core chain (demo adapter)',
+    '  paos approvals                 list approvals waiting on a human',
+    '  paos approve <id> --contract F [--token T] [--deny] [--by NAME]',
+    '                                 record a decision and resume an approved run',
     '  paos adapter doctor            five-level adapter diagnostics',
     '  paos plugin inspect <file>     install phase 1 (no code execution)',
     '  paos evals                     deterministic gates',
@@ -215,9 +300,16 @@ const COMMANDS: Record<string, (args: ParsedArgs) => Promise<string> | string> =
 export async function main(argv: string[]): Promise<number> {
   const parsed = parseArgs(argv);
   const handler = COMMANDS[parsed.command] ?? COMMANDS.help ?? ((): string => 'unknown command');
-  const out = await handler(parsed);
-  console.log(out);
-  return 0;
+  try {
+    const out = await handler(parsed);
+    console.log(out);
+    return 0;
+  } catch (err) {
+    // Domain errors (policy refusal, approval replay, superseded approvals)
+    // are expected outcomes, not crashes: report the reason, exit non-zero.
+    console.error(`error: ${err instanceof Error ? err.message : String(err)}`);
+    return 1;
+  }
 }
 
 // Run when executed directly (node dist/index.js ...).

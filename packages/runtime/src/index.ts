@@ -5,3 +5,4 @@ export * from './status-map.js';
 export * from './verify.js';
 export * from './snapshot.js';
 export * from './pipeline.js';
+export * from './approvals.js';

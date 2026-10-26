@@ -53,7 +53,7 @@ Three properties make it different from "yet another agent runner":
 
 - **14-state task machine** with a complete, tested transition matrix (T1-T37, 36 legal edges with guards). Illegal transitions are rejected, not warned about.
 - **Single risk model R0-R4** with deny-first classification: unknown actions default to the highest risk.
-- **Approval gate** for high-impact actions: R3 requires a human decision; R4 additionally requires a one-time token and nonce, with action/scope binding, consume-once semantics, and supersede support.
+- **Approval gate** for high-impact actions: R3 requires a human decision; R4 additionally requires a one-time token and nonce, with action/scope binding, consume-once semantics, and supersede support. Gated runs are released through `paos approve`, which re-verifies the binding before the gated execution starts.
 - **Contract v1.1 / Result v1.1** JSON schemas (`additionalProperties: false`) served from a `paos://` schema store with a drift check that keeps enums, DDL, and schemas in lockstep.
 - **Dispatch outbox** with six states including `unknown_outcome`; intents are committed *before* any network call.
 - **Worker lease + compare-and-swap** with adapter-derived heartbeat thresholds; double workers cannot double-execute.
@@ -116,6 +116,13 @@ pnpm evals:deterministic
 
 # 8. Run the enum/DDL/schema drift check
 pnpm drift:check
+
+# R3/R4 work parks on a human gate; this is how it is released
+node apps/cli/dist/index.js run demo/contracts/software-change-gated.json --data-dir=data
+node apps/cli/dist/index.js approvals --data-dir=data
+node apps/cli/dist/index.js approve <approval-id> \
+  --contract demo/contracts/software-change-gated.json --token human-confirmed --by you
+```
 ```
 
 The demo adapter replays recorded fixtures, so the first task loop

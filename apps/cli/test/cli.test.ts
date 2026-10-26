@@ -2,7 +2,7 @@ import { describe, expect, it, beforeAll, afterAll } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { parseArgs, cmdInit, cmdStatus, cmdDoctor, cmdPluginInspect } from '../src/index.js';
+import { parseArgs, cmdInit, cmdStatus, cmdDoctor, cmdPluginInspect, cmdApprovals } from '../src/index.js';
 
 // Node 22.22 bundles SQLite 3.51.2, just below the 3.51.3 WAL-reset
 // gate. Use the documented escape hatch for tests (design Section 6.3 rule 6).
@@ -56,5 +56,19 @@ describe('paos CLI', () => {
     const badPath = path.join(dir, 'bad.json');
     writeFileSync(badPath, JSON.stringify({ id: 'x' }));
     expect(cmdPluginInspect(badPath)).toContain('inspect FAILED');
+  });
+
+  it('accepts space-separated flag values and boolean flags', () => {
+    const p = parseArgs(['approve', 'apr_1', '--contract', 'c.json', '--token', 't', '--deny']);
+    expect(p.command).toBe('approve');
+    expect(p.positional).toEqual(['apr_1']);
+    expect(p.flags['contract']).toBe('c.json');
+    expect(p.flags['token']).toBe('t');
+    expect(p.flags['deny']).toBe(true);
+  });
+
+  it('approvals reports an uninitialised install instead of throwing', () => {
+    const missing = path.join(dir, 'nope');
+    expect(cmdApprovals(missing)).toContain('not initialized');
   });
 });

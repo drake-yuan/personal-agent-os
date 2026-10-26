@@ -9,6 +9,11 @@
  *     evidence refs and accepted_at (task-machine guard T22).
  *  2. A dispatch timeout is `unknown_outcome`, never a silent `failed`.
  *
+ * The chain is split in two so that a run parked on the human approval gate
+ * can resume through the same dispatch path (see approvals.ts):
+ *   runContract()      - intake, policy, risk gate
+ *   runDispatchPhase() - outbox dispatch, observation, verification, verdict
+ *
  * The adapter is typed structurally (not via @paos/adapters) to avoid a
  * runtime <-> adapters import cycle: adapters already import DispatchIntent
  * from this package.
@@ -86,6 +91,8 @@ export interface ContractV11 {
   policy: { risk_level: string; external_data_transfer?: string; approval_ref?: string | null };
 }
 
+export type Verdict = 'accepted' | 'rejected' | 'needs_human' | 'unknown_outcome';
+
 export interface RunResult {
   taskId: string;
   runId: string;
@@ -94,7 +101,7 @@ export interface RunResult {
   dispatchState: string;
   runStatus: string;
   /** Present only when the Verifier produced a verdict. */
-  verdict?: 'accepted' | 'rejected' | 'needs_human' | 'unknown_outcome';
+  verdict?: Verdict;
   /** Policy refused the contract before dispatch. */
   blocked?: string;
   /** Human gate created - the run is parked until a decision is recorded. */
@@ -129,119 +136,61 @@ function sha256(s: string): string {
   return createHash('sha256').update(s).digest('hex');
 }
 
-export async function runContract(input: RunInput): Promise<RunResult> {
+/** Persist the in-memory Task onto its row. Shared by the chain and the gate. */
+export function saveTask(db: DatabaseSync, task: Task, now: string): void {
+  updateTask(db, task.id, {
+    status: task.status,
+    risk: task.risk,
+    terminal_reason: task.terminalReason ?? null,
+    waiting_on: task.waitingOn ?? null,
+    evidence_refs: JSON.stringify(task.evidenceRefs),
+    verification_report_ref: task.verificationReportRef ?? null,
+    accepted_at: task.acceptedAt ?? null,
+    updated_at: now,
+  });
+}
+
+export interface DispatchPhaseInput {
+  db: DatabaseSync;
+  adapter: DispatchAdapter;
+  contract: ContractV11;
+  runId: string;
+  /** Must already be in `running` (or resumed to it by the approval gate). */
+  task: Task;
+  workspace: string;
+  checkContext?: CheckContext;
+  now?: () => string;
+}
+
+export interface DispatchPhaseResult {
+  task: Task;
+  dispatchId: string;
+  dispatchState: string;
+  runStatus: string;
+  verdict?: Verdict;
+  reports?: VerificationReport[];
+  blocked?: string;
+}
+
+/**
+ * Outbox dispatch -> observation -> three-layer verification -> verdict.
+ * Shared by a fresh run and by a run resumed from the approval gate.
+ */
+export async function runDispatchPhase(input: DispatchPhaseInput): Promise<DispatchPhaseResult> {
   const now = input.now ?? ((): string => new Date().toISOString());
-  const { db, adapter, contract } = input;
+  const { db, adapter, contract, runId } = input;
   const ctx = input.checkContext ?? emptyContext();
-
-  const taskId = contract.task_id || `task_${randomUUID()}`;
-  const runId = contract.workflow_run_id || `wfr_${randomUUID()}`;
+  let task = input.task;
   const dispatchId = `dsp_${randomUUID()}`;
-  const t0 = now();
 
-  // 1. Probe: only ENFORCED capabilities may gate a decision.
-  const health = await adapter.probe();
-
-  // 2. Policy on structured inputs (never on free text alone).
-  const verdict = evaluatePolicy({
-    actionType: input.actionType ?? 'local-write',
-    resourceScope: contract.requirements.scope_paths,
-    dataClassification: contract.requirements.data_classification,
-    enforcedCapabilities: health.enforcedCapabilities as never,
-    unconfined: health.unconfined,
-    description: contract.objective,
-  });
-
-  let task: Task = {
-    id: taskId,
-    domain: contract.domain as Domain,
-    title: contract.objective,
-    nextAction: 'dispatch contract',
-    doneCondition: contract.objective,
-    status: 'inbox',
-    risk: (verdict.allowed ? verdict.risk : 'R4') as RiskLevel,
-    evidenceRefs: [],
-    createdAt: t0,
-    updatedAt: t0,
-  };
-
-  const persistTask = (): void => {
-    updateTask(db, task.id, {
-      status: task.status,
-      risk: task.risk,
-      terminal_reason: task.terminalReason ?? null,
-      waiting_on: task.waitingOn ?? null,
-      evidence_refs: JSON.stringify(task.evidenceRefs),
-      verification_report_ref: task.verificationReportRef ?? null,
-      accepted_at: task.acceptedAt ?? null,
-      updated_at: now(),
-    });
-  };
-
-  if (!verdict.allowed) {
-    insertTask(db, {
-      id: task.id, domain: task.domain, title: task.title,
-      nextAction: task.nextAction, doneCondition: task.doneCondition,
-      status: task.status, risk: task.risk, createdAt: t0, updatedAt: t0,
-    });
-    task = { ...task, terminalReason: verdict.reason };
-    task = transition(task, 'rejected', now());
-    persistTask();
-    return {
-      taskId, runId, dispatchId, taskStatus: task.status,
-      dispatchState: 'pending', runStatus: 'failed', blocked: verdict.reason,
-    };
-  }
-
-  // 3. Task intake: inbox -> triaged -> planned -> ready.
-  insertTask(db, {
-    id: task.id, domain: task.domain, title: task.title,
-    nextAction: task.nextAction, doneCondition: task.doneCondition,
-    status: task.status, risk: task.risk, createdAt: t0, updatedAt: t0,
-  });
-  insertWorkflowRun(db, {
-    id: runId, workflowId: contract.workflow.id,
-    workflowVersion: contract.workflow.version, domain: contract.domain,
-    taskId, status: 'planned', codeVersion: 'v0.2', inputRef: `contract:${sha256(JSON.stringify(contract))}`,
-    createdAt: t0, updatedAt: t0,
-  });
-
-  const advance = (to: TaskStatus): void => {
-    task = transition(task, to, now());
-    persistTask();
-  };
-  advance('triaged');
-  advance('planned');
-  advance('ready');
-  advance('running');
-  updateWorkflowRun(db, runId, { status: 'running', updated_at: now() });
-
-  // 4. Risk gate: R3+ parks the run and records a one-time approval.
-  if (requiresHuman(task.risk)) {
-    advance('waiting_approval');
-    const approvalId = `apr_${randomUUID()}`;
-    insertApproval(db, {
-      id: approvalId, workflowRunId: runId, stepId: contract.step_id,
-      risk: task.risk, action: contract.objective,
-      actionHash: hashAction(contract.objective),
-      resourceScopeHash: hashScope(contract.requirements.scope_paths),
-      nonce: randomNonce(), decision: 'pending',
-      createdAt: now(), updatedAt: now(),
-    });
-    updateWorkflowRun(db, runId, { status: 'waiting_approval', updated_at: now() });
-    return {
-      taskId, runId, dispatchId, taskStatus: task.status,
-      dispatchState: 'pending', runStatus: 'waiting_approval', approvalId,
-    };
-  }
-
-  // 5. Outbox: the intent row is committed BEFORE any network call.
+  // Outbox: the intent row is committed BEFORE any network call.
+  const probe = await adapter.probe();
   let intent: DispatchIntent = {
     id: dispatchId, workflowRunId: runId, stepId: contract.step_id,
     adapterId: adapter.id, provider: adapter.provider,
     idempotencyKey: contract.policy.approval_ref ?? `${runId}-${contract.step_id}-${sha256(JSON.stringify(contract))}`,
     contractHash: sha256(JSON.stringify(contract)),
-    state: 'pending', supportsServerIdempotency: health.supportsServerIdempotency,
+    state: 'pending', supportsServerIdempotency: probe.supportsServerIdempotency,
     attemptCount: 0, createdAt: now(), updatedAt: now(),
   };
   insertDispatchIntent(db, {
@@ -278,52 +227,49 @@ export async function runContract(input: RunInput): Promise<RunResult> {
   if (intent.state === 'unknown_outcome') {
     // Honest: a timeout is not a failure. Park for human reconciliation.
     task = { ...task, waitingOn: 'dispatch_unknown_outcome' };
-    advance('blocked');
+    task = transition(task, 'blocked', now());
+    saveTask(db, task, now());
     updateWorkflowRun(db, runId, { status: 'unknown_outcome', updated_at: now() });
-    return {
-      taskId, runId, dispatchId, taskStatus: task.status,
-      dispatchState: intent.state, runStatus: 'unknown_outcome',
-    };
+    return { task, dispatchId, dispatchState: intent.state, runStatus: 'unknown_outcome' };
   }
   if (intent.state === 'rejected') {
-    advance('failed');
+    task = { ...task, terminalReason: outcome.error ?? 'dispatch rejected' };
+    task = transition(task, 'failed', now());
+    saveTask(db, task, now());
     updateWorkflowRun(db, runId, { status: 'failed', updated_at: now() });
     return {
-      taskId, runId, dispatchId, taskStatus: task.status,
-      dispatchState: intent.state, runStatus: 'failed',
+      task, dispatchId, dispatchState: intent.state, runStatus: 'failed',
       blocked: outcome.error ?? 'dispatch rejected',
     };
   }
 
-  // 6. Reconcile: map the provider status through the single mapper.
+  // Reconcile: map the provider status through the single mapper.
   const obs = await adapter.reconcile(outcome.providerTaskId ?? '');
-  const runStatus = mapProviderStatus(
-    adapter.provider as ProviderName,
-    obs.providerStatus,
-  );
+  const runStatus = mapProviderStatus(adapter.provider as ProviderName, obs.providerStatus);
   updateDispatchIntent(db, intent.id, { state: 'reconciled', resolved_at: now(), updated_at: now() });
 
   if (runStatus === 'failed') {
-    advance('failed');
+    task = { ...task, terminalReason: 'provider_failed' };
+    task = transition(task, 'failed', now());
+    saveTask(db, task, now());
     updateWorkflowRun(db, runId, { status: 'failed', updated_at: now() });
-    return {
-      taskId, runId, dispatchId, taskStatus: task.status,
-      dispatchState: 'reconciled', runStatus: 'failed',
-    };
+    return { task, dispatchId, dispatchState: 'reconciled', runStatus: 'failed' };
   }
-  advance('review_required');
+  task = transition(task, 'review_required', now());
+  saveTask(db, task, now());
   updateWorkflowRun(db, runId, { status: runStatus, updated_at: now() });
 
-  // 7. Three-layer verification. `accepted` is derived only here.
+  // Three-layer verification. `accepted` is derived only here.
   const acceptance = contract.acceptance ?? [];
   if (acceptance.length === 0) {
     // Unverifiable contracts must never auto-accept: park for a human.
     task = { ...task, waitingOn: 'no_acceptance_criteria' };
-    advance('blocked');
+    task = transition(task, 'blocked', now());
+    saveTask(db, task, now());
     updateWorkflowRun(db, runId, { status: 'paused', updated_at: now() });
     return {
-      taskId, runId, dispatchId, taskStatus: task.status,
-      dispatchState: 'reconciled', runStatus: 'paused', verdict: 'needs_human',
+      task, dispatchId, dispatchState: 'reconciled', runStatus: 'paused',
+      verdict: 'needs_human',
     };
   }
 
@@ -338,9 +284,8 @@ export async function runContract(input: RunInput): Promise<RunResult> {
   for (const [layer, calls] of byLayer) {
     reports.push(runLayer(layer, calls, ctx, runId));
   }
-  const v = deriveVerdict(reports);
+  const v: Verdict = deriveVerdict(reports);
 
-  // 8. Verdict -> terminal transition (T22 gate lives in acceptTask).
   if (v === 'accepted') {
     const evidenceRefs = contract.expected_output?.required_artifacts ?? [];
     task = acceptTask(task, {
@@ -348,22 +293,124 @@ export async function runContract(input: RunInput): Promise<RunResult> {
       evidenceRefs: evidenceRefs.length > 0 ? evidenceRefs : [`report_${runId}`],
       acceptedAt: now(),
     }, now());
-    persistTask();
+    saveTask(db, task, now());
     updateWorkflowRun(db, runId, { status: 'succeeded', updated_at: now() });
   } else if (v === 'rejected') {
     task = { ...task, terminalReason: 'verification_rejected' };
-    advance('failed');
+    task = transition(task, 'failed', now());
+    saveTask(db, task, now());
     updateWorkflowRun(db, runId, { status: 'failed', updated_at: now() });
   } else {
     task = { ...task, waitingOn: 'human_review' };
-    advance('blocked');
+    task = transition(task, 'blocked', now());
+    saveTask(db, task, now());
     updateWorkflowRun(db, runId, { status: 'paused', updated_at: now() });
   }
 
   return {
-    taskId, runId, dispatchId, taskStatus: task.status,
-    dispatchState: 'reconciled',
+    task, dispatchId, dispatchState: 'reconciled',
     runStatus: v === 'accepted' ? 'succeeded' : v === 'rejected' ? 'failed' : 'paused',
     verdict: v, reports,
+  };
+}
+
+export async function runContract(input: RunInput): Promise<RunResult> {
+  const now = input.now ?? ((): string => new Date().toISOString());
+  const { db, adapter, contract } = input;
+
+  const taskId = contract.task_id || `task_${randomUUID()}`;
+  const runId = contract.workflow_run_id || `wfr_${randomUUID()}`;
+  const t0 = now();
+
+  // 1. Probe: only ENFORCED capabilities may gate a decision.
+  const health = await adapter.probe();
+
+  // 2. Policy on structured inputs (never on free text alone).
+  const verdict = evaluatePolicy({
+    actionType: input.actionType ?? 'local-write',
+    resourceScope: contract.requirements.scope_paths,
+    dataClassification: contract.requirements.data_classification,
+    enforcedCapabilities: health.enforcedCapabilities as never,
+    unconfined: health.unconfined,
+    description: contract.objective,
+  });
+
+  const risk = (verdict.allowed ? verdict.risk : 'R4') as RiskLevel;
+  let task: Task = {
+    id: taskId,
+    domain: contract.domain as Domain,
+    title: contract.objective,
+    nextAction: 'dispatch contract',
+    doneCondition: contract.objective,
+    status: 'inbox',
+    risk,
+    evidenceRefs: [],
+    createdAt: t0,
+    updatedAt: t0,
+  };
+
+  insertTask(db, {
+    id: task.id, domain: task.domain, title: task.title,
+    nextAction: task.nextAction, doneCondition: task.doneCondition,
+    status: task.status, risk: task.risk, createdAt: t0, updatedAt: t0,
+  });
+
+  if (!verdict.allowed) {
+    task = { ...task, terminalReason: verdict.reason };
+    task = transition(task, 'rejected', now());
+    saveTask(db, task, now());
+    return {
+      taskId, runId, dispatchId: 'none', taskStatus: task.status,
+      dispatchState: 'pending', runStatus: 'failed', blocked: verdict.reason,
+    };
+  }
+
+  insertWorkflowRun(db, {
+    id: runId, workflowId: contract.workflow.id,
+    workflowVersion: contract.workflow.version, domain: contract.domain,
+    taskId, status: 'planned', codeVersion: 'v0.2',
+    inputRef: `contract:${sha256(JSON.stringify(contract))}`,
+    createdAt: t0, updatedAt: t0,
+  });
+
+  const advance = (to: TaskStatus): void => {
+    task = transition(task, to, now());
+    saveTask(db, task, now());
+  };
+  advance('triaged');
+  advance('planned');
+  advance('ready');
+  advance('running');
+
+  // 3. Risk gate: R3+ parks the run and records a one-time approval.
+  if (requiresHuman(task.risk)) {
+    advance('waiting_approval');
+    const approvalId = `apr_${randomUUID()}`;
+    insertApproval(db, {
+      id: approvalId, workflowRunId: runId, stepId: contract.step_id,
+      risk: task.risk, action: contract.objective,
+      actionHash: hashAction(contract.objective),
+      resourceScopeHash: hashScope(contract.requirements.scope_paths),
+      nonce: randomNonce(), decision: 'pending',
+      createdAt: now(), updatedAt: now(),
+    });
+    updateWorkflowRun(db, runId, { status: 'waiting_approval', updated_at: now() });
+    return {
+      taskId, runId, dispatchId: 'none', taskStatus: task.status,
+      dispatchState: 'pending', runStatus: 'waiting_approval', approvalId,
+    };
+  }
+
+  updateWorkflowRun(db, runId, { status: 'running', updated_at: now() });
+
+  // 4. Dispatch phase (shared with a resumed, approved run).
+  const phase = await runDispatchPhase({
+    db, adapter, contract, runId, task,
+    workspace: input.workspace, checkContext: input.checkContext, now: input.now,
+  });
+  return {
+    taskId, runId, dispatchId: phase.dispatchId, taskStatus: phase.task.status,
+    dispatchState: phase.dispatchState, runStatus: phase.runStatus,
+    verdict: phase.verdict, reports: phase.reports, blocked: phase.blocked,
   };
 }
