@@ -51,6 +51,14 @@ export interface DoctorRow {
   nextStep?: string;
 }
 
+/** Per-adapter login guidance. Guessed commands are worse than none. */
+function loginHint(adapterId: string): string {
+  if (adapterId.includes('claude')) return 'run `claude auth login`';
+  if (adapterId.includes('codex')) return 'run `codex login`';
+  if (adapterId.includes('gemini')) return 'run `gemini auth login`';
+  return 'complete the vendor login for this adapter';
+}
+
 /** Run the five-level doctor for one adapter health snapshot. */
 export function doctor(id: string, health: AdapterHealth): DoctorRow[] {
   const rows: DoctorRow[] = [
@@ -61,8 +69,8 @@ export function doctor(id: string, health: AdapterHealth): DoctorRow[] {
     },
     {
       adapterId: id, level: 'authenticated', ok: health.authenticated,
-      code: health.authenticated ? undefined : 'E_AUTH_MISSING',
-      nextStep: health.authenticated ? undefined : 'run the vendor login (e.g. `codex login`)',
+      code: health.authenticated ? undefined : health.diagnostics.find((d) => d.code.startsWith('AUTH'))?.code ?? 'E_AUTH_MISSING',
+      nextStep: health.authenticated ? undefined : health.diagnostics.find((d) => d.code.startsWith('AUTH'))?.nextStep ?? loginHint(id),
     },
     {
       adapterId: id, level: 'capabilities',

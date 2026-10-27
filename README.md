@@ -62,6 +62,7 @@ Three properties make it different from "yet another agent runner":
 - **SQLite persistence** with a versioned migration ledger (checksums, idempotent replay, rollback API) and append-only audit triggers.
 - **Local-first API** with an explicit auth model: `installation_secret` + Bearer token + Host/Origin/Sec-Fetch-Site checks. Never bound to `0.0.0.0` by default.
 - **Zero-secret demo adapter** - the entire task loop runs offline against recorded fixtures, no API keys required.
+- **Real CLI adapters for Codex and Claude Code** (G2). The objective travels over stdin, never argv; no vendor permission-bypass flag is ever passed; a non-zero exit is a task failure rather than a transport failure; and credentials are never probed implicitly - `--auth` opts into running the vendor status command.
 - **Deterministic eval gates** over a 12-scenario matrix (`paos evals` / `pnpm evals:deterministic`), including a coverage gate so a scenario with zero cases cannot pass vacuously.
 
 ## Requirements
@@ -105,8 +106,9 @@ node apps/cli/dist/index.js status --data-dir=data
 # 4. Execute the core chain end to end (demo adapter, no API keys)
 node apps/cli/dist/index.js run demo/contracts/software-change-task.json --data-dir=data
 
-# 5. Diagnose adapters (five-level health check)
+# 5. Diagnose adapters (five-level health check, incl. the real CLI ones)
 node apps/cli/dist/index.js adapter doctor
+node apps/cli/dist/index.js adapter doctor codex-adapter --auth
 
 # 6. Inspect a plugin manifest (install phase 1: zero code execution)
 node apps/cli/dist/index.js plugin inspect demo/manifest.json
@@ -227,7 +229,7 @@ v0.2 engineering baseline (kernel + contracts + runtime + governance). Gates G0 
 
 ## Known limitations (v0.1 - read before trusting)
 
-1. **No OS-level sandbox.** v0.1 is an orchestrator of trusted local operations. CLI adapters on Windows are `unconfined`; scope-restricted contracts are refused rather than pretended-safe.
+1. **No OS-level sandbox.** v0.1 is an orchestrator of trusted local operations. Real CLI adapters inherit whatever the vendor CLI enforces (Codex `-s` sandbox mode, Claude Code permission prompts); Personal Agent OS reports that honestly as `workspace-fs` and never creates a container. It also never passes a vendor "skip permissions" flag - Claude Code is told to auto-deny prompts instead. Contracts that need stronger isolation are refused rather than pretended-safe.
 2. **No arbitrary third-party plugins.** Only `builtin` / `reviewed` adapters; install runs `inspect -> trust -> probe -> grant` with zero code execution during inspect, and there is no hot-loading.
 3. **WorkBuddy cloud adapter is PoC-stage** (OAuth review pending); `handoff` mode is the documented fallback.
 4. **Evals prove determinism, not intelligence.** Passing cases show the control loop works - they are not evidence that "the agent got smarter".

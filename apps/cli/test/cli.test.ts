@@ -37,10 +37,20 @@ describe('paos CLI', () => {
     expect(cmdStatus(path.join(dir, 'nope'))).toContain('paos init');
   });
 
-  it('doctor runs five levels for the demo adapter', async () => {
-    const out = await cmdDoctor();
-    expect(out.split('\n')).toHaveLength(5);
-    expect(out).toContain('PASS');
+  it('doctor runs five levels per adapter and covers the real CLI ones', async () => {
+    const demo = await cmdDoctor('demo-adapter');
+    // one header + five levels
+    expect(demo.split('\n')).toHaveLength(6);
+    expect(demo.startsWith('demo-adapter')).toBe(true);
+    expect(demo).toContain('PASS');
+
+    const all = await cmdDoctor();
+    expect(all).toContain('codex-adapter');
+    expect(all).toContain('claude-code-adapter');
+  });
+
+  it('doctor rejects an unknown adapter id', async () => {
+    expect(await cmdDoctor('nope-adapter')).toContain('unknown adapter');
   });
 
   it('plugin inspect validates manifests with zero code execution', () => {

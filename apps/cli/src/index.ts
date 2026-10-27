@@ -20,8 +20,8 @@ import {
   TASK_STATUS, RISK_LEVEL, loadSchemaById, validate,
 } from '@paos/contracts';
 import { openDatabase, migrate, appliedVersions, sqliteVersion } from '@paos/db';
-import { DemoAdapter, doctor, AdapterRegistry } from '@paos/adapters';
-import type { DemoFixture } from '@paos/adapters';
+import { DemoAdapter, doctor, AdapterRegistry, CodexAdapter, ClaudeCodeAdapter } from '@paos/adapters';
+import type { AgentAdapter, DemoFixture } from '@paos/adapters';
 import { runContract, resolveApproval } from '@paos/runtime';
 import type { ContractV11, CheckContext } from '@paos/runtime';
 import { pendingApprovals } from '@paos/db';
@@ -96,14 +96,29 @@ export function cmdStatus(dataDir: string): string {
   return [`sqlite ${version}`, `tasks: ${counts}`, `workflow_runs=${runs.n}`].join('\n');
 }
 
-/** `paos adapter doctor` - five-level diagnostics for the demo adapter. */
-export async function cmdDoctor(): Promise<string> {
-  const adapter = new DemoAdapter();
-  const health = await adapter.probe();
-  const rows = doctor(adapter.id, health);
-  return rows
-    .map((r) => `${r.ok ? 'PASS' : 'FAIL'}  ${r.level.padEnd(20)} ${r.code ?? ''} ${r.nextStep ?? ''}`)
-    .join('\n');
+/**
+ * `paos adapter doctor [id]` - five-level diagnostics.
+ * With no id it diagnoses every known adapter, including the real CLI ones
+ * (Codex / Claude Code) when they are installed.
+ */
+export async function cmdDoctor(adapterId?: string, probeAuth = false): Promise<string> {
+  const registry = new AdapterRegistry();
+  const demo = new DemoAdapter();
+  registry.register(demo);
+  const candidates: AgentAdapter[] = [demo, new CodexAdapter({ probeAuth }), new ClaudeCodeAdapter({ probeAuth })];
+  const selected = adapterId ? candidates.filter((a) => a.id === adapterId) : candidates;
+  if (selected.length === 0) {
+    return `unknown adapter: ${adapterId} (known: ${candidates.map((a) => a.id).join(', ')})`;
+  }
+  const rows: string[] = [];
+  for (const adapter of selected) {
+    rows.push(adapter.id);
+    const health = await adapter.probe();
+    for (const r of doctor(adapter.id, health)) {
+      rows.push(`  ${r.ok ? 'PASS' : 'FAIL'}  ${r.level.padEnd(20)} ${r.code ?? ''} ${r.nextStep ?? ''}`);
+    }
+  }
+  return rows.join('\n');
 }
 
 /**
@@ -279,7 +294,10 @@ export async function cmdApprove(args: ParsedArgs): Promise<string> {
 }
 
 const COMMANDS: Record<string, (args: ParsedArgs) => Promise<string> | string> = {
-  'adapter doctor': () => cmdDoctor(),
+  'adapter doctor': (a) => cmdDoctor(
+    a.positional[0],
+    Boolean(a.flags['auth']),
+  ),
   'plugin inspect': (a) => cmdPluginInspect(a.positional[0] ?? ''),
   init: (a) => JSON.stringify(cmdInit(a.flags['data-dir'] ? String(a.flags['data-dir']) : 'data')),
   status: (a) => cmdStatus(a.flags['data-dir'] ? String(a.flags['data-dir']) : 'data'),
@@ -287,7 +305,7 @@ const COMMANDS: Record<string, (args: ParsedArgs) => Promise<string> | string> =
     a.positional[0] ?? '',
     a.flags['data-dir'] ? String(a.flags['data-dir']) : 'data',
   ),
-  doctor: () => cmdDoctor(),
+  doctor: (a) => cmdDoctor(a.positional[0], Boolean(a.flags['auth'])),
   inspect: (a) => cmdPluginInspect(a.positional[0] ?? ''),
   evals: (a) => cmdEvals(a),
   approve: (a) => cmdApprove(a),
@@ -301,7 +319,9 @@ const COMMANDS: Record<string, (args: ParsedArgs) => Promise<string> | string> =
     '  paos approvals                 list approvals waiting on a human',
     '  paos approve <id> --contract F [--token T] [--deny] [--by NAME]',
     '                                 record a decision and resume an approved run',
-    '  paos adapter doctor            five-level adapter diagnostics',
+    '  paos adapter doctor [id] [--auth]',
+    '                                 five-level diagnostics for the demo and',
+    '                                 real CLI adapters (codex / claude-code)',
     '  paos plugin inspect <file>     install phase 1 (no code execution)',
     '  paos evals [--cases F]        deterministic gates (report in <data-dir>/eval-runs)',
     '',

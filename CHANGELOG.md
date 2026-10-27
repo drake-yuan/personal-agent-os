@@ -8,30 +8,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- Core chain orchestration `runContract()` (packages/runtime): contract -> policy ->
-  task -> outbox dispatch -> observation -> three-layer verification -> verdict -> done.
-- Persistence layer (packages/db): repositories for tasks, workflow runs,
-  dispatch intents and approvals, with a per-table column allowlist for updates.
-- `paos run <contract.json>` CLI command - executes the chain against the demo
-  adapter and persists every state change.
-
-### Added
-- `resolveApproval()` (packages/runtime): the exit from the risk gate. Re-verifies
-  the action/scope binding before release, requires an explicit token for R4,
-  consumes the approval exactly once, and can resume the chain immediately.
-- `paos approve` / `paos approvals` CLI commands.
-- `demo/contracts/software-change-gated.json`: an R4 contract that exercises the
-  gate -> approve -> complete path.
-
-### Added
-- `paos evals`: real implementation of the deterministic gate suite
-  (`--cases`, `--json`, `--data-dir`), sharing `runGateSuite()` with
-  `pnpm evals:deterministic` so the two entry points cannot drift apart.
-- Two additional deterministic gates: `case-integrity` (empty/duplicate
-  case ids, missing descriptions) and `matrix-coverage` (every one of the
-  12 scenarios must have at least one case - otherwise the suite would pass
-  vacuously). A malformed JSONL line is scored as a case-integrity failure
-  rather than aborting the run, so one bad line cannot hide the verdict.
+- **Core chain orchestration** `runContract()` (packages/runtime): contract ->
+  policy -> task -> outbox dispatch -> observation -> three-layer verification
+  -> verdict -> done. `done` is reachable only through `acceptTask()`.
+- **Persistence layer** (packages/db): repositories for tasks, workflow runs,
+  dispatch intents and approvals. UPDATE statements are assembled from a
+  per-table column allowlist so no caller-supplied identifier reaches SQL text.
+- `paos run <contract.json>` - executes the chain against the demo adapter and
+  persists every state change.
+- `resolveApproval()` (packages/runtime) - the exit from the risk gate. It
+  re-verifies the action/scope binding before release, requires an explicit
+  token for R4, consumes the approval exactly once, and can resume the chain.
+  Added CLI commands `paos approve` and `paos approvals`.
+- `demo/contracts/software-change-gated.json` - an R4 contract that exercises
+  the gate -> approve -> complete path.
+- **Real CLI adapters** `CodexAdapter` and `ClaudeCodeAdapter` (G2 gate). The
+  untrusted objective travels over stdin, never argv; dispatch runs without a
+  shell using an argv array. No vendor permission-bypass flag is ever passed -
+  Claude Code is told to auto-deny prompts so an unattended run can neither
+  escalate nor hang. Codex advertises exactly what its `-s <mode>` grants, so
+  `read-only` never claims write access. Credentials are not probed implicitly:
+  `--auth` opts into the vendor status command, and a timeout is reported
+  rather than guessed.
+- `packages/adapters/src/process-exec.ts` - output-capped subprocess runner
+  with the cmd.exe wrapper Windows npm shims require (`.cmd` cannot be spawned
+  by Node directly) and a carefully escaped `quoteCmdArg`.
+- `paos adapter doctor [id] [--auth]` diagnoses every known adapter, including
+  the real CLI ones, with provider-correct login hints.
+- `paos evals [--cases F] [--json]` runs the deterministic gate suite, sharing
+  `runGateSuite()` with `pnpm evals:deterministic` so the two entry points
+  cannot report different verdicts.
+- Two additional deterministic gates: `case-integrity` (empty/duplicate case
+  ids, blank descriptions) and `matrix-coverage` (every one of the 12 scenarios
+  needs at least one case, otherwise the suite passes vacuously). A malformed
+  JSONL line is scored as a case-integrity failure instead of aborting, so one
+  bad line cannot hide the verdict for the rest.
 
 ### Changed
 - Demo contract objective reworded to a scoped local edit so the documented

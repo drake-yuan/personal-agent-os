@@ -1,0 +1,12 @@
+import { defineConfig } from 'vitest/config';
+
+export default defineConfig({
+  cacheDir: './.vitest-cache',
+  test: {
+    include: ['test/**/*.test.ts'],
+    // Files are collected serially. Parallel collection can drop test
+    // files when the filesystem is brokered (sandboxed dev shells),
+    // which silently lowers the measured coverage.
+    fileParallelism: false,
+  },
+});
