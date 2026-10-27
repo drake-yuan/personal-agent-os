@@ -62,7 +62,7 @@ Three properties make it different from "yet another agent runner":
 - **SQLite persistence** with a versioned migration ledger (checksums, idempotent replay, rollback API) and append-only audit triggers.
 - **Local-first API** with an explicit auth model: `installation_secret` + Bearer token + Host/Origin/Sec-Fetch-Site checks. Never bound to `0.0.0.0` by default.
 - **Zero-secret demo adapter** - the entire task loop runs offline against recorded fixtures, no API keys required.
-- **Deterministic eval gates** over a 12-scenario matrix (`pnpm evals:deterministic`).
+- **Deterministic eval gates** over a 12-scenario matrix (`paos evals` / `pnpm evals:deterministic`), including a coverage gate so a scenario with zero cases cannot pass vacuously.
 
 ## Requirements
 
@@ -111,8 +111,11 @@ node apps/cli/dist/index.js adapter doctor
 # 6. Inspect a plugin manifest (install phase 1: zero code execution)
 node apps/cli/dist/index.js plugin inspect demo/manifest.json
 
-# 7. Run deterministic eval gates
-pnpm evals:deterministic
+# 7. Run the deterministic eval gates (12-scenario matrix)
+#    The report lands in <data-dir>/eval-runs. Both entry points run the
+#    same suite, so they can never report different verdicts.
+node apps/cli/dist/index.js evals --data-dir=data
+# equivalent: pnpm evals:deterministic   (report lands in ./data/eval-runs)
 
 # 8. Run the enum/DDL/schema drift check
 pnpm drift:check

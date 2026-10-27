@@ -25,6 +25,7 @@ import type { DemoFixture } from '@paos/adapters';
 import { runContract, resolveApproval } from '@paos/runtime';
 import type { ContractV11, CheckContext } from '@paos/runtime';
 import { pendingApprovals } from '@paos/db';
+import { runGateSuite, formatSuite } from '@paos/evaluation';
 
 interface ParsedArgs {
   command: string;
@@ -123,9 +124,21 @@ export function cmdPluginInspect(manifestPath: string): string {
   return `inspect OK: ${manifest.id} v${manifest.version} (${manifest.kind}, ${manifest.source}) - install phase 1 only, no code executed`;
 }
 
-/** `paos evals` - deterministic gates (delegates to evaluation package). */
-export function cmdEvals(): string {
-  return 'run via: pnpm evals:deterministic';
+/**
+ * `paos evals` - deterministic gates, run through the same suite as
+ * `pnpm evals:deterministic` so the two cannot report different verdicts.
+ * The report lands under `--data-dir` (default `data/eval-runs`).
+ */
+export function cmdEvals(args: ParsedArgs): string {
+  const dataDir = args.flags['data-dir'] ? String(args.flags['data-dir']) : 'data';
+  const casesPath = args.flags['cases'] ? String(args.flags['cases']) : undefined;
+  const result = runGateSuite({
+    root: REPO_ROOT,
+    ...(casesPath ? { casesPath } : {}),
+    reportDir: path.join(path.resolve(dataDir), 'eval-runs'),
+  });
+  if (args.flags['json']) return JSON.stringify(result, null, 2);
+  return formatSuite(result, REPO_ROOT);
 }
 
 /** Repo root, resolved from the compiled CLI location (apps/cli/dist). */
@@ -276,7 +289,7 @@ const COMMANDS: Record<string, (args: ParsedArgs) => Promise<string> | string> =
   ),
   doctor: () => cmdDoctor(),
   inspect: (a) => cmdPluginInspect(a.positional[0] ?? ''),
-  evals: () => cmdEvals(),
+  evals: (a) => cmdEvals(a),
   approve: (a) => cmdApprove(a),
   approvals: (a) => cmdApprovals(a.flags['data-dir'] ? String(a.flags['data-dir']) : 'data'),
   help: () => [
@@ -290,7 +303,7 @@ const COMMANDS: Record<string, (args: ParsedArgs) => Promise<string> | string> =
     '                                 record a decision and resume an approved run',
     '  paos adapter doctor            five-level adapter diagnostics',
     '  paos plugin inspect <file>     install phase 1 (no code execution)',
-    '  paos evals                     deterministic gates',
+    '  paos evals [--cases F]        deterministic gates (report in <data-dir>/eval-runs)',
     '',
     'v0.1 positioning: orchestrator of trusted local user operations.',
     'Not a sandboxed runtime for untrusted agents.',

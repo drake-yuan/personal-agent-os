@@ -64,6 +64,51 @@ export const gateScenarioCoverage: DeterministicGate = (cases) =>
     SCENARIO_MATRIX.includes(c.scenario) ? undefined : `unknown scenario ${c.scenario}`,
   );
 
+/**
+ * Gate: a case cannot be scored if it cannot be identified.
+ * Duplicate ids would let one broken case be silently counted twice, and
+ * an empty description makes the gate unreviewable by a human later.
+ */
+export const gateCaseIntegrity: DeterministicGate = (cases) => {
+  const seen = new Set<string>();
+  const result = runGate('case-integrity', cases, (c) => {
+    if (!c.id || c.id.trim().length === 0) return 'case id is empty';
+    if (seen.has(c.id)) return `duplicate case id ${c.id}`;
+    seen.add(c.id);
+    if (!c.description || c.description.trim().length === 0) {
+      return `case ${c.id} has no description`;
+    }
+    return undefined;
+  });
+  return result;
+};
+
+/**
+ * Gate: the suite itself must be able to detect regressions. A scenario
+ * with zero cases passes vacuously, so coverage is asserted explicitly
+ * rather than derived from whatever happens to be present.
+ */
+export const gateMatrixCoverage: DeterministicGate = (cases) => {
+  const report = coverageReport(cases);
+  const missing = SCENARIO_MATRIX.filter((s) => report[s] === 0);
+  return {
+    gate: 'matrix-coverage',
+    passed: SCENARIO_MATRIX.length - missing.length,
+    failed: missing.length,
+    failures: missing.map((s) => ({ caseId: '-', reason: `no case covers scenario ${s}` })),
+  };
+};
+
+/**
+ * The full deterministic gate set. These are all-or-nothing before merge:
+ * a partial pass is a failure.
+ */
+export const ALL_DETERMINISTIC_GATES: readonly DeterministicGate[] = [
+  gateScenarioCoverage,
+  gateCaseIntegrity,
+  gateMatrixCoverage,
+];
+
 /** Gate: no scenario may be silently skipped. */
 export function coverageReport(cases: GateCase[]): Record<Scenario, number> {
   const report = Object.fromEntries(SCENARIO_MATRIX.map((s) => [s, 0])) as Record<Scenario, number>;

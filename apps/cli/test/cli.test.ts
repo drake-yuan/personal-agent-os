@@ -1,8 +1,8 @@
 import { describe, expect, it, beforeAll, afterAll } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { parseArgs, cmdInit, cmdStatus, cmdDoctor, cmdPluginInspect, cmdApprovals } from '../src/index.js';
+import { parseArgs, cmdInit, cmdStatus, cmdDoctor, cmdPluginInspect, cmdApprovals, cmdEvals } from '../src/index.js';
 
 // Node 22.22 bundles SQLite 3.51.2, just below the 3.51.3 WAL-reset
 // gate. Use the documented escape hatch for tests (design Section 6.3 rule 6).
@@ -70,5 +70,44 @@ describe('paos CLI', () => {
   it('approvals reports an uninitialised install instead of throwing', () => {
     const missing = path.join(dir, 'nope');
     expect(cmdApprovals(missing)).toContain('not initialized');
+  });
+
+  describe('evals', () => {
+    it('runs the shipped gate suite and writes a report under the data dir', () => {
+      const dataDir = path.join(dir, 'data-evals');
+      const out = cmdEvals({
+        command: 'evals',
+        positional: [],
+        flags: { 'data-dir': dataDir },
+      });
+      expect(out).toContain('scenario-coverage');
+      expect(out).toContain('verdict: PASS');
+      expect(out).toContain('report:');
+      expect(existsSync(path.join(dataDir, 'eval-runs'))).toBe(true);
+    });
+
+    it('reports failures instead of throwing when a case can be parsed but not covered', () => {
+      const casesPath = path.join(dir, 'partial.jsonl');
+      writeFileSync(casesPath, `${JSON.stringify({ id: 'a', scenario: 'success', description: 'd' })}\n`);
+      const out = cmdEvals({
+        command: 'evals',
+        positional: [],
+        flags: { 'data-dir': path.join(dir, 'data-evals2'), cases: casesPath },
+      });
+      expect(out).toContain('verdict: FAIL');
+      expect(out).toContain('uncovered scenarios:');
+      expect(out).toContain('prompt-injection');
+    });
+
+    it('can emit machine-readable JSON', () => {
+      const out = cmdEvals({
+        command: 'evals',
+        positional: [],
+        flags: { 'data-dir': path.join(dir, 'data-evals3'), json: true },
+      });
+      const parsed = JSON.parse(out) as { ok: boolean; results: unknown[] };
+      expect(parsed.ok).toBe(true);
+      expect(parsed.results.length).toBeGreaterThan(0);
+    });
   });
 });

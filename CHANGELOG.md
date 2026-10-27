@@ -23,10 +23,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `demo/contracts/software-change-gated.json`: an R4 contract that exercises the
   gate -> approve -> complete path.
 
+### Added
+- `paos evals`: real implementation of the deterministic gate suite
+  (`--cases`, `--json`, `--data-dir`), sharing `runGateSuite()` with
+  `pnpm evals:deterministic` so the two entry points cannot drift apart.
+- Two additional deterministic gates: `case-integrity` (empty/duplicate
+  case ids, missing descriptions) and `matrix-coverage` (every one of the
+  12 scenarios must have at least one case - otherwise the suite would pass
+  vacuously). A malformed JSONL line is scored as a case-integrity failure
+  rather than aborting the run, so one bad line cannot hide the verdict.
+
 ### Changed
 - Demo contract objective reworded to a scoped local edit so the documented
   first loop actually completes (deny-first NL classification keeps unknown
   objectives at R4, which correctly parks them on the human gate).
+- Vitest collects test files serially (`fileParallelism: false`). Parallel
+  collection can silently drop test files under a brokered filesystem, which
+  understates measured coverage.
 - runContract() split into intake and `runDispatchPhase()` so an approved run
   resumes through the same dispatch path instead of duplicating it.
 - CLI flags accept space-separated values (`--contract file`) as well as
