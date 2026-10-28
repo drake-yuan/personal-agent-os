@@ -24,7 +24,7 @@ import {
   TASK_STATUS, RISK_LEVEL, loadSchemaById, validate,
 } from '@paos/contracts';
 import { openDatabase, migrate, appliedVersions, sqliteVersion } from '@paos/db';
-import { DemoAdapter, doctor, AdapterRegistry, CodexAdapter, ClaudeCodeAdapter } from '@paos/adapters';
+import { DemoAdapter, doctor, AdapterRegistry, CodexAdapter, ClaudeCodeAdapter, WorkBuddyAdapter } from '@paos/adapters';
 import type { AgentAdapter, DemoFixture } from '@paos/adapters';
 import { runContract, resolveApproval } from '@paos/runtime';
 import type { ContractV11, CheckContext } from '@paos/runtime';
@@ -215,6 +215,7 @@ export async function cmdDoctor(adapterId?: string, probeAuth = false): Promise<
   registry.register(new DemoAdapter(loadDemoFixtures()));
   registry.register(new CodexAdapter({ probeAuth }));
   registry.register(new ClaudeCodeAdapter({ probeAuth }));
+  registry.register(new WorkBuddyAdapter());
   const candidates = registry.all();
   // Aliases resolve here too, so `doctor demo` and `run --adapter demo`
   // cannot disagree about what exists.
@@ -317,6 +318,9 @@ export const KNOWN_ADAPTERS: Array<{ id: string; aliases: string[] }> = [
   { id: 'demo-adapter', aliases: ['demo'] },
   { id: 'codex-adapter', aliases: [] },
   { id: 'claude-code-adapter', aliases: ['claude-code'] },
+  // Gate G3 (OAuth app review) is open: selectable and fully structured, but
+  // it fails closed until an endpoint and token are configured.
+  { id: 'workbuddy-adapter', aliases: ['workbuddy'] },
 ];
 
 /** Canonical id for an id or alias; `undefined` when unknown. */
@@ -349,6 +353,8 @@ export function buildAdapter(adapterId: string | undefined, fixtures: DemoFixtur
       return new CodexAdapter();
     case 'claude-code-adapter':
       return new ClaudeCodeAdapter();
+    case 'workbuddy-adapter':
+      return new WorkBuddyAdapter();
     default:
       return new DemoAdapter(fixtures);
   }

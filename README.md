@@ -232,7 +232,7 @@ The local REST API is specified in [`openapi.yaml`](openapi.yaml) (OpenAPI 3.1),
 ## Testing and quality gates
 
 ```bash
-pnpm -r test              # 207 tests / 24 files (deterministic suite)
+pnpm -r test              # 221 tests / 26 files (deterministic suite)
 pnpm -r typecheck         # strict tsc
 pnpm drift:check          # enums = DDL docs = JSON schemas (single-source check)
 pnpm evals:deterministic  # 12/12 scenario gates
@@ -246,13 +246,17 @@ The suite covers, among others: every legal and illegal state-machine edge, appr
 
 ## Project status
 
-v0.2 engineering baseline (kernel + contracts + runtime + governance). Gates G0 and G1 of the release plan are closed. Real CLI adapters (codex / claude-code) are wired into `paos run --adapter <id>` and are verified against real workspace evidence rather than demo fixtures. The WorkBuddy cloud adapter remains unimplemented (gate G3, OAuth review pending). The roadmap and release gates are documented in [`docs/OPEN_SOURCE_PLAYBOOK.md`](docs/OPEN_SOURCE_PLAYBOOK.md).
+v0.2 engineering baseline (kernel + contracts + runtime + governance). Gates G0 and G1 of the release plan are closed. Real CLI adapters (codex / claude-code) are wired into `paos run --adapter <id>` and are verified against real workspace evidence rather than demo fixtures.
+
+The **WorkBuddy cloud adapter is implemented and selectable** (`--adapter workbuddy`, also `paos adapter doctor workbuddy`), but gate **G3 remains open**: it needs a real endpoint plus an OAuth token from the reviewed app, so it fails closed and enforces nothing until those exist. It is a remote executor, so it guarantees only `structured_output` and `external.send` - it has no local filesystem access, and contracts requiring `fs.*` are correctly refused rather than silently attempted.
+
+The roadmap and release gates are documented in [`docs/OPEN_SOURCE_PLAYBOOK.md`](docs/OPEN_SOURCE_PLAYBOOK.md).
 
 ## Known limitations (v0.1 - read before trusting)
 
 1. **No OS-level sandbox.** v0.1 is an orchestrator of trusted local operations. Real CLI adapters inherit whatever the vendor CLI enforces (Codex `-s` sandbox mode, Claude Code permission prompts); Personal Agent OS reports that honestly as `workspace-fs` and never creates a container. It also never passes a vendor "skip permissions" flag - Claude Code is told to auto-deny prompts instead. Contracts that need stronger isolation are refused rather than pretended-safe.
 2. **No arbitrary third-party plugins.** Only `builtin` / `reviewed` adapters; install runs `inspect -> trust -> probe -> grant` with zero code execution during inspect, and there is no hot-loading.
-3. **No WorkBuddy adapter yet.** WorkBuddy appears as a fleet executor and its provider status mapping is implemented, but there is no adapter that can dispatch to it, no OAuth configuration, and it is declared `unconfined` with no enforced capabilities (so policy would refuse scope-restricted work). `paos run --adapter workbuddy` fails closed. Closing this needs the G3 gate (OAuth app review) - `handoff` mode is the documented fallback meanwhile.
+3. **The WorkBuddy adapter cannot run real work yet (gate G3).** An adapter now exists and is selectable, but there is no published endpoint and no reviewed OAuth app, so `probe()` reports `E_WORKBUDDY_NOT_CONFIGURED` and enforces nothing until `PAOS_WORKBUDDY_ENDPOINT` + `PAOS_WORKBUDDY_TOKEN` are set. It is also a *remote* executor: it enforces only `structured_output` and `external.send`, never local filesystem access, so contracts needing `fs.*` are correctly refused. Closing this needs the G3 gate (OAuth app review) - `handoff` mode is the documented fallback meanwhile.
 4. **Evals prove determinism, not intelligence.** Passing cases show the control loop works - they are not evidence that "the agent got smarter".
 5. **Single user, local-first, no accounts.** Remote access is a separate security mode (v0.2+), never `0.0.0.0` by default.
 6. **SQLite runtime gate is 3.51.3** (WAL-reset fix). Node 22.22 bundles 3.51.2 - override explicitly with `PAOS_MIN_SQLITE_VERSION` if you accept the risk.

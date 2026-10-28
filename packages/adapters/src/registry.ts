@@ -64,13 +64,20 @@ export function doctor(id: string, health: AdapterHealth): DoctorRow[] {
   const rows: DoctorRow[] = [
     {
       adapterId: id, level: 'installed', ok: health.installed,
-      code: health.installed ? undefined : 'E_NOT_INSTALLED',
-      nextStep: health.installed ? undefined : 'install the CLI and re-run doctor',
+      // A remote adapter is not "not installed" - it may simply be
+      // unconfigured. Prefer its own diagnostic over CLI-install advice,
+      // which would send the user looking for a binary that does not exist.
+      code: health.installed ? undefined : health.diagnostics[0]?.code ?? 'E_NOT_INSTALLED',
+      nextStep: health.installed ? undefined : health.diagnostics[0]?.nextStep ?? 'install the CLI and re-run doctor',
     },
     {
       adapterId: id, level: 'authenticated', ok: health.authenticated,
-      code: health.authenticated ? undefined : health.diagnostics.find((d) => d.code.startsWith('AUTH'))?.code ?? 'E_AUTH_MISSING',
-      nextStep: health.authenticated ? undefined : health.diagnostics.find((d) => d.code.startsWith('AUTH'))?.nextStep ?? loginHint(id),
+      code: health.authenticated ? undefined
+        : health.diagnostics.find((d) => d.code.startsWith('AUTH'))?.code
+          ?? health.diagnostics[0]?.code ?? 'E_AUTH_MISSING',
+      nextStep: health.authenticated ? undefined
+        : health.diagnostics.find((d) => d.code.startsWith('AUTH'))?.nextStep
+          ?? health.diagnostics[0]?.nextStep ?? loginHint(id),
     },
     {
       adapterId: id, level: 'capabilities',

@@ -21,6 +21,11 @@ data/eval-runs/
 *.key
 installation.secret
 
+# ...but the template IS documentation: ship it so users know what to set.
+# Without this the `.env.*` rule above would also swallow `.env.example`,
+# which the README and setup instructions point at.
+!.env.example
+
 # OS
 .DS_Store
 Thumbs.db

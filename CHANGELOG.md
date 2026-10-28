@@ -29,6 +29,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`paos status` / `paos adapter doctor`** - read-only diagnostics already cover the
   "diagnosed" leg of G4 (no new command needed).
 
+- **WorkBuddyAdapter** (packages/adapters, gate G3) - a remote/cloud adapter
+  driven over HTTP with a bearer token, implementing the same observation-only
+  contract as the CLI adapters. Selectable via `paos run --adapter workbuddy`
+  and diagnosable via `paos adapter doctor workbuddy`.
+  - No host is invented: with `PAOS_WORKBUDDY_ENDPOINT` / `PAOS_WORKBUDDY_TOKEN`
+    unset it reports `E_WORKBUDDY_NOT_CONFIGURED` and enforces nothing.
+  - Enforced capabilities are only what a remote executor guarantees
+    (`structured_output`, `external.send`) - it has no local filesystem, so
+    contracts requiring `fs.*` are refused instead of silently attempted.
+  - A remote agent has no process, so `reconcile()` reports `exitCode: null`
+    ("no process exists") rather than `undefined` ("not observable").
+  - Transport failures never become task failures; unknown statuses stay
+    `unknown`.
+- `paos adapter doctor` now surfaces an adapter's own diagnostic instead of
+  generic CLI-install advice, so a cloud adapter reads "not configured"
+  rather than "install the CLI".
+
 ### Changed
 - Adapter ids and aliases now come from a single list (`KNOWN_ADAPTERS`),
   shared by `run`, `approve` and `adapter doctor`, so an alias can no longer

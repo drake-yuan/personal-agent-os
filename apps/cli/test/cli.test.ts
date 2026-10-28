@@ -68,6 +68,8 @@ describe('paos CLI', () => {
     const all = await cmdDoctor();
     expect(all).toContain('codex-adapter');
     expect(all).toContain('claude-code-adapter');
+    // Gate G3 adapter: registered and diagnosable even while unconfigured.
+    expect(all).toContain('workbuddy-adapter');
   });
 
   it('doctor rejects an unknown adapter id instead of exiting 0', async () => {
@@ -79,7 +81,19 @@ describe('paos CLI', () => {
     expect(buildAdapter('demo', []).id).toBe('demo-adapter');
     expect(buildAdapter('codex-adapter', []).id).toBe('codex-adapter');
     expect(buildAdapter('claude-code', []).id).toBe('claude-code-adapter');
+    expect(buildAdapter('workbuddy', []).id).toBe('workbuddy-adapter');
+    expect(canonicalAdapterId('workbuddy')).toBe('workbuddy-adapter');
     expect(() => buildAdapter('nope', [])).toThrow(/unknown adapter/);
+  });
+
+  it('the WorkBuddy adapter is selectable but fails closed while unconfigured', async () => {
+    // Reachable from `run`/`doctor` (was "unknown adapter" before), yet it
+    // cannot take work without credentials: enforced capabilities stay empty.
+    const adapter = buildAdapter('workbuddy', []);
+    const health = await adapter.probe();
+    expect(health.authenticated).toBe(false);
+    expect(health.enforcedCapabilities).toEqual([]);
+    expect(health.diagnostics[0]?.code).toBe('E_WORKBUDDY_NOT_CONFIGURED');
   });
 
   it('aliases resolve identically for run and doctor', async () => {

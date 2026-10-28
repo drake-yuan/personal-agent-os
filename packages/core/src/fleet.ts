@@ -11,8 +11,15 @@ import type { Executor } from './types.js';
 export const FLEET: Executor[] = [
   {
     id: 'workbuddy', kind: 'workbuddy',
-    declaredCapabilities: ['fs.read.workspace', 'fs.write.workspace', 'process.exec', 'external.send'],
-    enforcedCapabilities: [], unconfined: true, enforcedIsolation: 'none',
+    declaredCapabilities: ['fs.read.workspace', 'fs.write.workspace', 'structured_output', 'external.send'],
+    // A remote executor runs in the provider's own environment, so it can
+    // only guarantee structured output and outbound sends - never local disk
+    // or process access. Declaring `fs.*` without enforcing it would let a
+    // scope-restricted local contract be routed somewhere that cannot do it.
+    // Provisional until gate G3 (OAuth app review) closes; the adapter itself
+    // fails closed without PAOS_WORKBUDDY_ENDPOINT + PAOS_WORKBUDDY_TOKEN.
+    enforcedCapabilities: ['structured_output', 'external.send'],
+    unconfined: false, enforcedIsolation: 'container',
   },
   {
     id: 'claude-code', kind: 'claude-code', version: '2.1.283',
