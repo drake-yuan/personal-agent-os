@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 /**
  * paos CLI (design Section 15.3).
  *
@@ -13,7 +14,7 @@
  *                                    zero code execution
  */
 import { randomBytes, createHash } from 'node:crypto';
-import { mkdirSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync, existsSync, readFileSync, realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -26,6 +27,9 @@ import { runContract, resolveApproval } from '@paos/runtime';
 import type { ContractV11, CheckContext } from '@paos/runtime';
 import { pendingApprovals } from '@paos/db';
 import { runGateSuite, formatSuite } from '@paos/evaluation';
+import {
+  recordingAdapter, workspaceCheckContext, type RunEvidence,
+} from './evidence.js';
 
 interface ParsedArgs {
   command: string;
@@ -103,13 +107,19 @@ export function cmdStatus(dataDir: string): string {
  */
 export async function cmdDoctor(adapterId?: string, probeAuth = false): Promise<string> {
   const registry = new AdapterRegistry();
-  const demo = new DemoAdapter();
-  registry.register(demo);
-  const candidates: AgentAdapter[] = [demo, new CodexAdapter({ probeAuth }), new ClaudeCodeAdapter({ probeAuth })];
-  const selected = adapterId ? candidates.filter((a) => a.id === adapterId) : candidates;
-  if (selected.length === 0) {
-    return `unknown adapter: ${adapterId} (known: ${candidates.map((a) => a.id).join(', ')})`;
+  registry.register(new DemoAdapter(loadDemoFixtures()));
+  registry.register(new CodexAdapter({ probeAuth }));
+  registry.register(new ClaudeCodeAdapter({ probeAuth }));
+  const candidates = registry.all();
+  // Aliases resolve here too, so `doctor demo` and `run --adapter demo`
+  // cannot disagree about what exists.
+  const canonical = canonicalAdapterId(adapterId);
+  if (adapterId && canonical === undefined) {
+    // Thrown, not returned: an unknown id is a usage error and must exit
+    // non-zero like every other command instead of printing and exiting 0.
+    throw new Error(`unknown adapter: ${adapterId} (known: ${describeKnownAdapters()})`);
   }
+  const selected = canonical ? candidates.filter((a) => a.id === canonical) : candidates;
   const rows: string[] = [];
   for (const adapter of selected) {
     rows.push(adapter.id);
@@ -193,8 +203,54 @@ export function demoCheckContext(contract: ContractV11, fixtures: DemoFixture[])
   };
 }
 
-/** `paos run <contract.json>` - execute the core chain end to end. */
-export async function cmdRun(contractPath: string, dataDir: string): Promise<string> {
+/**
+ * Single source of truth for the adapters the CLI can drive. `run`, `approve`
+ * and `adapter doctor` all resolve ids through this list, so an alias can
+ * never work in one command and be rejected in another.
+ */
+export const KNOWN_ADAPTERS: Array<{ id: string; aliases: string[] }> = [
+  { id: 'demo-adapter', aliases: ['demo'] },
+  { id: 'codex-adapter', aliases: [] },
+  { id: 'claude-code-adapter', aliases: ['claude-code'] },
+];
+
+/** Canonical id for an id or alias; `undefined` when unknown. */
+export function canonicalAdapterId(adapterId: string | undefined): string | undefined {
+  if (!adapterId) return undefined;
+  return KNOWN_ADAPTERS.find((a) => a.id === adapterId || a.aliases.includes(adapterId))?.id;
+}
+
+/** Human-readable list including aliases, used in errors and help. */
+export function describeKnownAdapters(): string {
+  return KNOWN_ADAPTERS
+    .map((a) => (a.aliases.length > 0 ? `${a.id} (${a.aliases.join(', ')})` : a.id))
+    .join(', ');
+}
+
+/**
+ * Pick the adapter a `run` executes with. Defaults to the demo replay adapter
+ * so the zero-secret first run works; the real CLI adapters (codex-adapter /
+ * claude-code-adapter) are reachable here so a contract can be executed by a
+ * real local agent. Unknown ids fail closed with an explicit error instead of
+ * silently falling back to the demo adapter.
+ */
+export function buildAdapter(adapterId: string | undefined, fixtures: DemoFixture[]): AgentAdapter {
+  const id = canonicalAdapterId(adapterId) ?? 'demo-adapter';
+  if (adapterId && canonicalAdapterId(adapterId) === undefined) {
+    throw new Error(`unknown adapter: ${adapterId} (known: ${describeKnownAdapters()})`);
+  }
+  switch (id) {
+    case 'codex-adapter':
+      return new CodexAdapter();
+    case 'claude-code-adapter':
+      return new ClaudeCodeAdapter();
+    default:
+      return new DemoAdapter(fixtures);
+  }
+}
+
+/** `paos run <contract.json> [--adapter ID]` - execute the core chain end to end. */
+export async function cmdRun(contractPath: string, dataDir: string, adapterId?: string): Promise<string> {
   const dbPath = path.join(dataDir, 'paos.db');
   if (!existsSync(dbPath)) return 'not initialized - run `paos init` first';
   if (!existsSync(contractPath)) return `contract not found: ${contractPath}`;
@@ -202,12 +258,23 @@ export async function cmdRun(contractPath: string, dataDir: string): Promise<str
   const fixtures = loadDemoFixtures();
   const db = openDatabase(dbPath);
   try {
+    const base = buildAdapter(adapterId, fixtures);
+    const workspace = contract.inputs?.workspace ?? process.cwd();
+    // A real adapter executes against the live workspace, so it must be
+    // verified against real evidence. Handing it the demo fixtures would
+    // verify a run that never happened.
+    const real = base.id !== 'demo-adapter';
+    const evidence: RunEvidence = {};
+    const adapter = real ? recordingAdapter(base, evidence) : base;
+    const checkContext = real
+      ? workspaceCheckContext({ workspace, evidence })
+      : demoCheckContext(contract, fixtures);
     const result = await runContract({
       db,
-      adapter: new DemoAdapter(fixtures),
+      adapter,
       contract,
-      workspace: contract.inputs?.workspace ?? process.cwd(),
-      checkContext: demoCheckContext(contract, fixtures),
+      workspace,
+      checkContext,
     });
     const lines = [
       `task ${result.taskId}: ${result.taskStatus}`,
@@ -259,6 +326,7 @@ export async function cmdApprove(args: ParsedArgs): Promise<string> {
   const deny = Boolean(args.flags['deny']);
   const token = args.flags['token'] ? String(args.flags['token']) : undefined;
   const decidedBy = args.flags['by'] ? String(args.flags['by']) : 'human';
+  const adapterId = args.flags['adapter'] ? String(args.flags['adapter']) : undefined;
 
   let contract: ContractV11 | undefined;
   if (contractPath) {
@@ -269,6 +337,13 @@ export async function cmdApprove(args: ParsedArgs): Promise<string> {
   const db = openDatabase(dbPath);
   try {
     const fixtures = loadDemoFixtures();
+    const workspace = contract?.inputs?.workspace ?? process.cwd();
+    const base = contract && !deny ? buildAdapter(adapterId, fixtures) : undefined;
+    // Same evidence rule as `run`: a resumed real adapter is verified
+    // against the live workspace, never against demo fixtures.
+    const real = base !== undefined && base.id !== 'demo-adapter';
+    const evidence: RunEvidence = {};
+    const adapter = base && real ? recordingAdapter(base, evidence) : base;
     const result = await resolveApproval({
       db,
       approvalId,
@@ -277,9 +352,11 @@ export async function cmdApprove(args: ParsedArgs): Promise<string> {
       token,
       contract,
       // Resume immediately when a contract is supplied.
-      adapter: contract && !deny ? new DemoAdapter(fixtures) : undefined,
-      workspace: contract?.inputs?.workspace ?? process.cwd(),
-      checkContext: contract ? demoCheckContext(contract, fixtures) : undefined,
+      adapter,
+      workspace,
+      checkContext: contract
+        ? (real ? workspaceCheckContext({ workspace, evidence }) : demoCheckContext(contract, fixtures))
+        : undefined,
     });
     const lines = [
       `approval ${result.approvalId}: ${result.decision}`,
@@ -304,6 +381,7 @@ const COMMANDS: Record<string, (args: ParsedArgs) => Promise<string> | string> =
   run: (a) => cmdRun(
     a.positional[0] ?? '',
     a.flags['data-dir'] ? String(a.flags['data-dir']) : 'data',
+    a.flags['adapter'] ? String(a.flags['adapter']) : undefined,
   ),
   doctor: (a) => cmdDoctor(a.positional[0], Boolean(a.flags['auth'])),
   inspect: (a) => cmdPluginInspect(a.positional[0] ?? ''),
@@ -315,7 +393,8 @@ const COMMANDS: Record<string, (args: ParsedArgs) => Promise<string> | string> =
     '',
     '  paos init [--data-dir=DIR]     first-run setup (secret + DB + migrations)',
     '  paos status [--data-dir=DIR]   task/run overview',
-    '  paos run <contract.json>       execute the core chain (demo adapter)',
+    '  paos run <contract.json> [--adapter ID]   execute the core chain',
+    `                                 ID: ${describeKnownAdapters()} (default: demo-adapter)`,
     '  paos approvals                 list approvals waiting on a human',
     '  paos approve <id> --contract F [--token T] [--deny] [--by NAME]',
     '                                 record a decision and resume an approved run',
@@ -345,9 +424,24 @@ export async function main(argv: string[]): Promise<number> {
   }
 }
 
-// Run when executed directly (node dist/index.js ...).
-const invokedDirectly =
-  process.argv[1] !== undefined && fileURLToPath(import.meta.url) === path.resolve(process.argv[1]);
-if (invokedDirectly) {
+/**
+ * Run when executed directly (`node dist/index.js ...`, or via the linked
+ * `paos` bin). Symlinks are resolved on both sides: a bin installed as
+ * `node_modules/.bin/paos` points at `node_modules/@paos/cli/...` in
+ * `process.argv[1]`, while `import.meta.url` is the real path under
+ * `apps/cli/...`. Comparing those unresolved would silently skip `main()`
+ * and exit 0 doing nothing.
+ */
+function invokedDirectly(): boolean {
+  const entry = process.argv[1];
+  if (entry === undefined) return false;
+  try {
+    return realpathSync(entry) === realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (invokedDirectly()) {
   main(process.argv.slice(2)).then((code) => process.exit(code));
 }

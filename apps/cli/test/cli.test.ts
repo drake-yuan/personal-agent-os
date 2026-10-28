@@ -2,7 +2,7 @@ import { describe, expect, it, beforeAll, afterAll } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { parseArgs, cmdInit, cmdStatus, cmdDoctor, cmdPluginInspect, cmdApprovals, cmdEvals } from '../src/index.js';
+import { parseArgs, cmdInit, cmdStatus, cmdDoctor, cmdPluginInspect, cmdApprovals, cmdEvals, buildAdapter, canonicalAdapterId } from '../src/index.js';
 
 // Node 22.22 bundles SQLite 3.51.2, just below the 3.51.3 WAL-reset
 // gate. Use the documented escape hatch for tests (design Section 6.3 rule 6).
@@ -49,8 +49,30 @@ describe('paos CLI', () => {
     expect(all).toContain('claude-code-adapter');
   });
 
-  it('doctor rejects an unknown adapter id', async () => {
-    expect(await cmdDoctor('nope-adapter')).toContain('unknown adapter');
+  it('doctor rejects an unknown adapter id instead of exiting 0', async () => {
+    await expect(cmdDoctor('nope-adapter')).rejects.toThrow(/unknown adapter/);
+  });
+
+  it('buildAdapter selects by id and fails closed on unknown ids', () => {
+    expect(buildAdapter(undefined, []).id).toBe('demo-adapter');
+    expect(buildAdapter('demo', []).id).toBe('demo-adapter');
+    expect(buildAdapter('codex-adapter', []).id).toBe('codex-adapter');
+    expect(buildAdapter('claude-code', []).id).toBe('claude-code-adapter');
+    expect(() => buildAdapter('nope', [])).toThrow(/unknown adapter/);
+  });
+
+  it('aliases resolve identically for run and doctor', async () => {
+    // A alias accepted by `run` must also be accepted by `doctor`.
+    expect(canonicalAdapterId('demo')).toBe('demo-adapter');
+    expect(canonicalAdapterId('claude-code')).toBe('claude-code-adapter');
+    expect(canonicalAdapterId('nope')).toBeUndefined();
+    const out = await cmdDoctor('demo');
+    expect(out.startsWith('demo-adapter')).toBe(true);
+  });
+
+  it('parseArgs reads --adapter with a space or equals value', () => {
+    expect(parseArgs(['run', 'c.json', '--adapter', 'codex-adapter']).flags['adapter']).toBe('codex-adapter');
+    expect(parseArgs(['run', 'c.json', '--adapter=claude-code-adapter']).flags['adapter']).toBe('claude-code-adapter');
   });
 
   it('plugin inspect validates manifests with zero code execution', () => {

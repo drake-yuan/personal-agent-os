@@ -15,9 +15,9 @@
 
 | Gate | Content | Status (2026-10-25) |
 |---|---|---|
-| **G0** | No dual definitions of core state/risk/contract; every invariant has a test; empty-DB bootstrap + v1 fixture migration + safe re-run + rollback on failure | PASSED: single-source enums + drift check; 22-table baseline + migration ledger + idempotent replay + checksum rejection; 137 tests |
+| **G0** | No dual definitions of core state/risk/contract; every invariant has a test; empty-DB bootstrap + v1 fixture migration + safe re-run + rollback on failure | PASSED: single-source enums + drift check; 22-table baseline + migration ledger + idempotent replay + checksum rejection; 207 tests |
 | **G1** | Zero-secret demo end-to-end; recovers from forced kill + network cut; tasks never auto-complete on an agent's claim; unauthorized API/path tests pass | PASSED: DemoAdapter fixture loop; five outbox fault injections; `done` writable only by the Verifier; snapshot escape detection |
-| **G2** | One local CLI adapter's probe/plan/dispatch/stream/cancel/reconcile/mapResult with parameters verified on the actual machine | PARTIAL: interface and demo implementation landed; **real CLI adapters (codex/claude-code) still need on-machine probe verification** |
+| **G2** | One local CLI adapter's probe/plan/dispatch/stream/cancel/reconcile/mapResult with parameters verified on the actual machine | PARTIAL: interface, demo and real CLI adapters (codex/claude-code) landed and selectable via `paos run --adapter`, verified against real workspace evidence; **a real agent dispatch on the actual machine is still unrecorded** (see `paos adapter doctor`) |
 | **G3** | WorkBuddy PoC: OAuth review, real link, credential containment, outbound preview, no duplicate creation on timeout | NOT PASSED (depends on app review, which is a G0 hard gate; `handoff` is the fallback) |
 | **G4** | README first screen shows permission model / platform / adapter status / limitations; security checklist; 3-5 unaccompanied trial users; release artifact can be backed up / restored / upgraded / diagnosed | NOT PASSED (README written per Section 19.1; trial not yet done) |
 

@@ -8,6 +8,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **`paos run --adapter <id>`** - the core chain can now execute with a real
+  local agent (`codex-adapter` / `claude-code-adapter`) instead of the
+  replayed demo adapter. Unknown ids fail closed instead of silently falling
+  back to the demo adapter.
+- **Real workspace evidence for real adapters** (`apps/cli/src/evidence.ts`) -
+  non-demo runs are verified against evidence derived from the live workspace
+  (artifact hashes read from disk, changed paths from `git`, the exit code
+  actually returned by the process). Unobservable evidence fails closed; an
+  undeterminable diff is reported as unverifiable rather than as "no changes".
+- `ProviderObservation.exitCode` - adapters now report the exit code they
+  observed, so protocol-layer checks can be verified without inventing one.
+- Root script `pnpm paos` and a linked `paos` workspace bin.
+
+### Changed
+- Adapter ids and aliases now come from a single list (`KNOWN_ADAPTERS`),
+  shared by `run`, `approve` and `adapter doctor`, so an alias can no longer
+  work in one command and be rejected in another. Errors and `paos help`
+  list the aliases alongside the canonical ids.
+
+### Fixed
+- **`paos adapter doctor <unknown-id>` exited 0.** It returned the error as
+  normal output, so scripts could not detect the failure; it now fails like
+  every other command (non-zero exit).
+- **Stale docs.** The README claimed 137 tests / 23 files (now 207 / 24),
+  described the WorkBuddy adapter as "PoC-stage" when none is implemented,
+  and listed REST endpoints as if a server shipped - `openapi.yaml` is
+  spec-only in v0.2 and `apps/` contains the CLI only.
+
+- **`paos` bin did nothing and exited 0.** The direct-execution guard compared
+  `process.argv[1]` with `import.meta.url`; when launched through the linked
+  bin the former is the symlinked `node_modules/@paos/cli/...` path and the
+  latter the real `apps/cli/...` path, so `main()` was never called. Both
+  sides are now compared after symlink resolution. The entry also gained a
+  `#!/usr/bin/env node` shebang.
 - **Core chain orchestration** `runContract()` (packages/runtime): contract ->
   policy -> task -> outbox dispatch -> observation -> three-layer verification
   -> verdict -> done. `done` is reachable only through `acceptTask()`.

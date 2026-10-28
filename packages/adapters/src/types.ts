@@ -53,6 +53,13 @@ export interface ProviderObservation {
   providerTaskId: string;
   providerStatus: string;
   transport: 'ok' | 'timeout' | 'connection_error' | 'protocol_error';
+  /**
+   * Process exit code as actually observed, when the adapter can see it.
+   * `null` means "observed, but no exit code exists" (e.g. timeout/killed);
+   * `undefined` means "not observable" - verification must fail closed
+   * rather than assume success.
+   */
+  exitCode?: number | null;
 }
 
 /** Vendor raw output - shape is provider-specific, always untrusted. */

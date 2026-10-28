@@ -12,6 +12,7 @@
   "scripts": {
     "build": "pnpm -r build",
     "test": "pnpm -r test",
+    "paos": "node apps/cli/dist/index.js",
     "test:count": "pnpm -r test 2>&1 | grep -E 'Tests +[0-9]+' || true",
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",
@@ -20,6 +21,7 @@
     "sqlite:version": "node -e \"const{DatabaseSync}=require('node:sqlite');console.log(new DatabaseSync(':memory:').prepare('select sqlite_version() v').get().v)\""
   },
   "devDependencies": {
+    "@paos/cli": "workspace:*",
     "@types/node": "^26.6.5",
     "typescript": "^5.6.0",
     "vitest": "^2.1.0"

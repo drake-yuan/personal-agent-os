@@ -103,8 +103,12 @@ node apps/cli/dist/index.js init --data-dir=data
 # 3. Inspect the local installation
 node apps/cli/dist/index.js status --data-dir=data
 
-# 4. Execute the core chain end to end (demo adapter, no API keys)
-node apps/cli/dist/index.js run demo/contracts/software-change-task.json --data-dir=data
+# 4. Execute the core chain end to end (demo adapter, no API keys).
+#    `paos` works after `pnpm install` links the workspace bin; the explicit
+#    `node apps/cli/dist/index.js` form is equivalent.
+paos run demo/contracts/software-change-task.json --data-dir=data
+# Execute with a real local agent instead of the replayed demo:
+paos run demo/contracts/software-change-task.json --adapter codex-adapter --data-dir=data
 
 # 5. Diagnose adapters (five-level health check, incl. the real CLI ones)
 node apps/cli/dist/index.js adapter doctor
@@ -133,6 +137,13 @@ node apps/cli/dist/index.js approve <approval-id> \
 The demo adapter replays recorded fixtures, so the first task loop
 (Inbox -> contract -> dispatch -> three-layer verification -> Review)
 runs entirely offline.
+
+Selecting a real adapter (`--adapter codex-adapter | claude-code-adapter`)
+dispatches to the real CLI and verifies against **real workspace evidence**:
+artifact hashes are read from the workspace, changed paths come from `git`,
+and the exit code is the one the process actually returned. Evidence that
+cannot be observed fails closed - it is never filled in from fixtures, and an
+undeterminable diff is reported as unverifiable rather than as "no changes".
 
 A typical task lifecycle looks like this:
 
@@ -192,6 +203,8 @@ Design decisions are recorded as ADRs in [`docs/adr/`](docs/adr/README.md).
 
 The local REST API is specified in [`openapi.yaml`](openapi.yaml) (OpenAPI 3.1), and the server-sent event stream in [`events.schema.json`](events.schema.json).
 
+> **Spec only - not implemented in v0.2.** No HTTP server ships yet; `apps/` contains the CLI only. Treat `openapi.yaml` as the design contract for the v0.2 server, and use `paos` as the single entry point today.
+
 **Authentication model (v0.1):**
 
 - Every request requires the `installation_secret` (Bearer token).
@@ -211,7 +224,7 @@ The local REST API is specified in [`openapi.yaml`](openapi.yaml) (OpenAPI 3.1),
 ## Testing and quality gates
 
 ```bash
-pnpm -r test              # 137 tests / 23 files (deterministic suite)
+pnpm -r test              # 207 tests / 24 files (deterministic suite)
 pnpm -r typecheck         # strict tsc
 pnpm drift:check          # enums = DDL docs = JSON schemas (single-source check)
 pnpm evals:deterministic  # 12/12 scenario gates
@@ -225,13 +238,13 @@ The suite covers, among others: every legal and illegal state-machine edge, appr
 
 ## Project status
 
-v0.2 engineering baseline (kernel + contracts + runtime + governance). Gates G0 and G1 of the release plan are closed; real CLI adapters (codex / claude-code) are PoC-stage pending on-machine probing. The roadmap and release gates are documented in [`docs/OPEN_SOURCE_PLAYBOOK.md`](docs/OPEN_SOURCE_PLAYBOOK.md).
+v0.2 engineering baseline (kernel + contracts + runtime + governance). Gates G0 and G1 of the release plan are closed. Real CLI adapters (codex / claude-code) are wired into `paos run --adapter <id>` and are verified against real workspace evidence rather than demo fixtures. The WorkBuddy cloud adapter remains unimplemented (gate G3, OAuth review pending). The roadmap and release gates are documented in [`docs/OPEN_SOURCE_PLAYBOOK.md`](docs/OPEN_SOURCE_PLAYBOOK.md).
 
 ## Known limitations (v0.1 - read before trusting)
 
 1. **No OS-level sandbox.** v0.1 is an orchestrator of trusted local operations. Real CLI adapters inherit whatever the vendor CLI enforces (Codex `-s` sandbox mode, Claude Code permission prompts); Personal Agent OS reports that honestly as `workspace-fs` and never creates a container. It also never passes a vendor "skip permissions" flag - Claude Code is told to auto-deny prompts instead. Contracts that need stronger isolation are refused rather than pretended-safe.
 2. **No arbitrary third-party plugins.** Only `builtin` / `reviewed` adapters; install runs `inspect -> trust -> probe -> grant` with zero code execution during inspect, and there is no hot-loading.
-3. **WorkBuddy cloud adapter is PoC-stage** (OAuth review pending); `handoff` mode is the documented fallback.
+3. **No WorkBuddy adapter yet.** WorkBuddy appears as a fleet executor and its provider status mapping is implemented, but there is no adapter that can dispatch to it, no OAuth configuration, and it is declared `unconfined` with no enforced capabilities (so policy would refuse scope-restricted work). `paos run --adapter workbuddy` fails closed. Closing this needs the G3 gate (OAuth app review) - `handoff` mode is the documented fallback meanwhile.
 4. **Evals prove determinism, not intelligence.** Passing cases show the control loop works - they are not evidence that "the agent got smarter".
 5. **Single user, local-first, no accounts.** Remote access is a separate security mode (v0.2+), never `0.0.0.0` by default.
 6. **SQLite runtime gate is 3.51.3** (WAL-reset fix). Node 22.22 bundles 3.51.2 - override explicitly with `PAOS_MIN_SQLITE_VERSION` if you accept the risk.

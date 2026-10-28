@@ -8,6 +8,9 @@ importers:
 
   .:
     devDependencies:
+      '@paos/cli':
+        specifier: workspace:*
+        version: link:apps/cli
       '@types/node':
         specifier: ^26.6.5
         version: 26.6.5

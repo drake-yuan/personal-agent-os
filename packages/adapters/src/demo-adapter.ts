@@ -84,6 +84,7 @@ export class DemoAdapter implements AgentAdapter {
       providerTaskId,
       providerStatus: fixture?.providerStatus ?? 'unknown',
       transport: 'ok',
+      exitCode: fixture?.exitCode ?? null,
     };
   }
 

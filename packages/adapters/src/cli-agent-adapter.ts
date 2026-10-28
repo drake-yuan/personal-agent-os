@@ -302,12 +302,15 @@ export abstract class BaseCliAdapter implements AgentAdapter {
   async reconcile(providerTaskId: string): Promise<ProviderObservation> {
     const record = this.runs.get(providerTaskId);
     if (!record) {
+      // Not observable: omit the exit code so verification fails closed
+      // instead of inventing a success.
       return { providerTaskId, providerStatus: 'unknown', transport: 'ok' };
     }
     return {
       providerTaskId,
       providerStatus: record.timedOut ? 'unknown' : record.exitCode === 0 ? 'completed' : 'failed',
       transport: record.transport,
+      exitCode: record.exitCode,
     };
   }
 
