@@ -20,6 +20,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `ProviderObservation.exitCode` - adapters now report the exit code they
   observed, so protocol-layer checks can be verified without inventing one.
 - Root script `pnpm paos` and a linked `paos` workspace bin.
+- **Release operations (gate G4)** - `paos backup`, `paos restore`, `paos migrate`.
+  `backup` snapshots `paos.db` + `installation.secret` into a timestamped dir with a
+  `manifest.json`; `restore` is manifest-verified and fails closed on non-backup dirs;
+  `migrate` applies pending schema migrations after taking a reversible checkpoint backup.
+  Together with `status` and `adapter doctor` these cover the G4 "backed up / restored /
+  upgraded / diagnosed" requirement.
+- **`paos status` / `paos adapter doctor`** - read-only diagnostics already cover the
+  "diagnosed" leg of G4 (no new command needed).
 
 ### Changed
 - Adapter ids and aliases now come from a single list (`KNOWN_ADAPTERS`),

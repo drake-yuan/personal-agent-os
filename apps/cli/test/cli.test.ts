@@ -2,7 +2,7 @@ import { describe, expect, it, beforeAll, afterAll } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { parseArgs, cmdInit, cmdStatus, cmdDoctor, cmdPluginInspect, cmdApprovals, cmdEvals, buildAdapter, canonicalAdapterId } from '../src/index.js';
+import { parseArgs, cmdInit, cmdStatus, cmdDoctor, cmdPluginInspect, cmdApprovals, cmdEvals, buildAdapter, canonicalAdapterId, cmdBackup, cmdRestore, cmdMigrate, createBackup } from '../src/index.js';
 
 // Node 22.22 bundles SQLite 3.51.2, just below the 3.51.3 WAL-reset
 // gate. Use the documented escape hatch for tests (design Section 6.3 rule 6).
@@ -35,6 +35,27 @@ describe('paos CLI', () => {
 
   it('status reports not-initialized before init', () => {
     expect(cmdStatus(path.join(dir, 'nope'))).toContain('paos init');
+  });
+
+  it('backup snapshots DB + secret, restore recovers them, migrate checkpoints', () => {
+    const dataDir = path.join(dir, 'data-bk');
+    cmdInit(dataDir);
+    const bk = createBackup(dataDir);
+    expect(bk.files).toContain('paos.db');
+    expect(bk.files).toContain('manifest.json');
+    // Manifest is authoritative: restore rejects a non-backup directory.
+    const badDir = mkdtempSync(path.join(dir, 'not-a-backup-'));
+    writeFileSync(path.join(badDir, 'random.txt'), 'x');
+    expect(() => cmdRestore(badDir, path.join(dir, 'nope2'))).toThrow(/not a paos backup/);
+    // Restore into a fresh dir and confirm the DB is intact.
+    const restored = path.join(dir, 'restored');
+    const msg = cmdRestore(bk.dir, restored);
+    expect(msg).toContain('restored into');
+    expect(cmdStatus(restored)).toContain('inbox=0');
+    // Migrate takes a checkpoint and is idempotent.
+    const mig = cmdMigrate(restored);
+    expect(mig).toContain('migration checkpoint');
+    expect(mig).toContain('schema versions: 1 -> 1');
   });
 
   it('doctor runs five levels per adapter and covers the real CLI ones', async () => {

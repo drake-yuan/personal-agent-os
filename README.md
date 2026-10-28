@@ -131,6 +131,14 @@ node apps/cli/dist/index.js run demo/contracts/software-change-gated.json --data
 node apps/cli/dist/index.js approvals --data-dir=data
 node apps/cli/dist/index.js approve <approval-id> \
   --contract demo/contracts/software-change-gated.json --token human-confirmed --by you
+
+# 9. Release operations: backup, restore, upgrade (gate G4)
+paos backup --data-dir=data                 # snapshot paos.db + secret (+ manifest)
+paos backup --data-dir=data --out ./release/backup
+paos restore <backup-dir> --data-dir=data   # restore a snapshot (manifest-verified)
+paos migrate --data-dir=data                # apply pending schema migrations
+                                             # (takes a checkpoint backup first)
+
 ```
 ```
 

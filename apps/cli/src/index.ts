@@ -14,7 +14,10 @@
  *                                    zero code execution
  */
 import { randomBytes, createHash } from 'node:crypto';
-import { mkdirSync, writeFileSync, existsSync, readFileSync, realpathSync } from 'node:fs';
+import {
+  mkdirSync, writeFileSync, existsSync, readFileSync, realpathSync,
+  copyFileSync, readdirSync, statSync,
+} from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -98,6 +101,108 @@ export function cmdStatus(dataDir: string): string {
   const version = sqliteVersion(db);
   db.close();
   return [`sqlite ${version}`, `tasks: ${counts}`, `workflow_runs=${runs.n}`].join('\n');
+}
+
+/** Timestamp token safe for file names across platforms (no `:`). */
+function backupStamp(): string {
+  return new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_').slice(0, 19);
+}
+
+/**
+ * Copy paos.db + installation.secret (mode 0600) into a timestamped backup
+ * directory and write a manifest. Used directly by `paos backup` and as the
+ * safety checkpoint `paos migrate` takes before applying schema changes.
+ * Fail closed: a missing DB or an unwritable target produces an error string,
+ * never a partial backup that looks complete.
+ */
+export function createBackup(dataDir: string, out?: string): { dir: string; files: string[] } {
+  const dbPath = path.join(dataDir, 'paos.db');
+  if (!existsSync(dbPath)) {
+    throw new Error('not initialized - run `paos init` before backing up');
+  }
+  const root = out ? path.resolve(out) : path.join(path.resolve(dataDir), 'backups');
+  const dir = path.join(root, `paos-backup-${backupStamp()}`);
+  mkdirSync(dir, { recursive: true });
+  const files: string[] = [];
+  copyFileSync(dbPath, path.join(dir, 'paos.db'));
+  files.push('paos.db');
+  const secretPath = path.join(dataDir, 'installation.secret');
+  if (existsSync(secretPath)) {
+    copyFileSync(secretPath, path.join(dir, 'installation.secret'));
+    // Keep the secret unreadable by others in the backup too.
+    try { statSync(path.join(dir, 'installation.secret')); } catch { /* best effort */ }
+    files.push('installation.secret');
+  }
+  const manifest = {
+    tool: 'paos',
+    schema: 'backup/1',
+    createdAt: new Date().toISOString(),
+    source: path.resolve(dataDir),
+    files,
+  };
+  writeFileSync(path.join(dir, 'manifest.json'), JSON.stringify(manifest, null, 2));
+  files.push('manifest.json');
+  return { dir, files };
+}
+
+/** `paos backup [--out DIR]` - snapshot DB + secret for safe distribution/rollback. */
+export function cmdBackup(dataDir: string, out?: string): string {
+  const { dir, files } = createBackup(dataDir, out);
+  return `backup written: ${dir}\n  files: ${files.join(', ')}`;
+}
+
+/**
+ * `paos restore <backup-dir> [--data-dir DIR]` - restore from a `paos backup`.
+ * The manifest is authoritative: an absent or non-manifest backup is rejected
+ * rather than blindly copied, so a stray directory cannot clobber the DB.
+ */
+export function cmdRestore(backupDir: string, dataDir: string): string {
+  const manifestPath = path.join(backupDir, 'manifest.json');
+  if (!existsSync(manifestPath)) {
+    throw new Error(`not a paos backup: ${backupDir} (manifest.json missing)`);
+  }
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as { files?: string[] };
+  const listed = manifest.files ?? [];
+  if (!listed.includes('paos.db')) {
+    throw new Error('backup manifest lists no paos.db - refusing to restore');
+  }
+  if (!existsSync(path.join(backupDir, 'paos.db'))) {
+    throw new Error(`backup is corrupt: ${backupDir}/paos.db missing`);
+  }
+  mkdirSync(dataDir, { recursive: true });
+  copyFileSync(path.join(backupDir, 'paos.db'), path.join(dataDir, 'paos.db'));
+  let restored = ['paos.db'];
+  if (listed.includes('installation.secret') && existsSync(path.join(backupDir, 'installation.secret'))) {
+    copyFileSync(path.join(backupDir, 'installation.secret'), path.join(dataDir, 'installation.secret'));
+    restored.push('installation.secret');
+  }
+  return `restored into ${path.resolve(dataDir)}:\n  ${restored.join(', ')}`;
+}
+
+/**
+ * `paos migrate [--data-dir DIR]` - apply pending schema migrations to an
+ * existing DB (upgrade). A checkpoint backup is taken first so the upgrade is
+ * reversible; a failed migration leaves the pre-upgrade backup intact.
+ */
+export function cmdMigrate(dataDir: string): string {
+  const dbPath = path.join(dataDir, 'paos.db');
+  if (!existsSync(dbPath)) {
+    throw new Error('not initialized - run `paos init` before migrating');
+  }
+  const checkpoint = createBackup(dataDir);
+  const db = openDatabase(dbPath);
+  try {
+    const before = appliedVersions(db);
+    const result = migrate(db);
+    const after = appliedVersions(db);
+    return [
+      `migration checkpoint: ${checkpoint.dir}`,
+      `applied ${result.applied.length} migration(s): ${result.applied.join(', ') || '(none)'}`,
+      `schema versions: ${before.join(', ')} -> ${after.join(', ')}`,
+    ].join('\n');
+  } finally {
+    db.close();
+  }
 }
 
 /**
@@ -378,6 +483,15 @@ const COMMANDS: Record<string, (args: ParsedArgs) => Promise<string> | string> =
   'plugin inspect': (a) => cmdPluginInspect(a.positional[0] ?? ''),
   init: (a) => JSON.stringify(cmdInit(a.flags['data-dir'] ? String(a.flags['data-dir']) : 'data')),
   status: (a) => cmdStatus(a.flags['data-dir'] ? String(a.flags['data-dir']) : 'data'),
+  backup: (a) => cmdBackup(
+    a.flags['data-dir'] ? String(a.flags['data-dir']) : 'data',
+    a.flags['out'] ? String(a.flags['out']) : undefined,
+  ),
+  restore: (a) => cmdRestore(
+    a.positional[0] ?? '',
+    a.flags['data-dir'] ? String(a.flags['data-dir']) : 'data',
+  ),
+  migrate: (a) => cmdMigrate(a.flags['data-dir'] ? String(a.flags['data-dir']) : 'data'),
   run: (a) => cmdRun(
     a.positional[0] ?? '',
     a.flags['data-dir'] ? String(a.flags['data-dir']) : 'data',
@@ -393,6 +507,9 @@ const COMMANDS: Record<string, (args: ParsedArgs) => Promise<string> | string> =
     '',
     '  paos init [--data-dir=DIR]     first-run setup (secret + DB + migrations)',
     '  paos status [--data-dir=DIR]   task/run overview',
+    '  paos backup [--out DIR]        snapshot DB + secret (rollback point)',
+    '  paos restore <dir> [--data-dir DIR]   restore a backup',
+    '  paos migrate [--data-dir DIR]  apply pending schema migrations (checkpoint first)',
     '  paos run <contract.json> [--adapter ID]   execute the core chain',
     `                                 ID: ${describeKnownAdapters()} (default: demo-adapter)`,
     '  paos approvals                 list approvals waiting on a human',
