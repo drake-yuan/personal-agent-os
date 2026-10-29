@@ -68,9 +68,11 @@ describe('paos CLI', () => {
     const all = await cmdDoctor();
     expect(all).toContain('codex-adapter');
     expect(all).toContain('claude-code-adapter');
+    expect(all).toContain('gemini-adapter');
+    expect(all).toContain('qwen-code-adapter');
     // Gate G3 adapter: registered and diagnosable even while unconfigured.
     expect(all).toContain('workbuddy-adapter');
-  });
+  }, 30000);
 
   it('doctor rejects an unknown adapter id instead of exiting 0', async () => {
     await expect(cmdDoctor('nope-adapter')).rejects.toThrow(/unknown adapter/);
@@ -81,7 +83,14 @@ describe('paos CLI', () => {
     expect(buildAdapter('demo', []).id).toBe('demo-adapter');
     expect(buildAdapter('codex-adapter', []).id).toBe('codex-adapter');
     expect(buildAdapter('claude-code', []).id).toBe('claude-code-adapter');
+    expect(buildAdapter('gemini', []).id).toBe('gemini-adapter');
+    expect(buildAdapter('gemini-adapter', []).id).toBe('gemini-adapter');
+    expect(buildAdapter('qwen', []).id).toBe('qwen-code-adapter');
+    expect(buildAdapter('qwen-code', []).id).toBe('qwen-code-adapter');
+    expect(buildAdapter('qwen-code-adapter', []).id).toBe('qwen-code-adapter');
     expect(buildAdapter('workbuddy', []).id).toBe('workbuddy-adapter');
+    expect(canonicalAdapterId('gemini')).toBe('gemini-adapter');
+    expect(canonicalAdapterId('qwen')).toBe('qwen-code-adapter');
     expect(canonicalAdapterId('workbuddy')).toBe('workbuddy-adapter');
     expect(() => buildAdapter('nope', [])).toThrow(/unknown adapter/);
   });

@@ -98,6 +98,13 @@ export abstract class BaseCliAdapter implements AgentAdapter {
   private readonly runs = new Map<string, RunRecord>();
   private readonly probeAuth: boolean;
   /**
+   * Whether this vendor exposes a non-hanging auth-status command. When
+   * false, `probe()` never runs an auth probe and reports AUTH_UNVERIFIED
+   * with a vendor-specific hint - safer than guessing a subcommand that may
+   * have been removed (e.g. qwen-code dropped `auth status`).
+   */
+  protected supportsAuthProbe = true;
+  /**
    * Prompt text keyed by contract hash, captured at `plan()` time.
    * Keyed by content so concurrent dispatches cannot cross wires, and so
    * the prompt reaches stdin without ever becoming an argv element.
@@ -164,7 +171,7 @@ export abstract class BaseCliAdapter implements AgentAdapter {
       executable, args: this.versionArgs, timeoutMs: PROBE_TIMEOUT_MS,
     }));
     const versionOk = version.exitCode === 0 && version.error === undefined;
-    const auth = versionOk && this.probeAuth
+    const auth = versionOk && this.probeAuth && this.supportsAuthProbe
       ? await this.execFn(this.request({
         executable, args: this.authArgs, timeoutMs: AUTH_PROBE_TIMEOUT_MS,
       }))
@@ -398,5 +405,117 @@ export class ClaudeCodeAdapter extends BaseCliAdapter {
 
   protected buildDispatchArgs(): string[] {
     return ['-p', '--permission-prompts', 'none'];
+  }
+}
+
+/**
+ * Gemini CLI (google/gemini-cli).
+ *
+ * `-p` selects headless mode and appends the prompt from STDIN, so the
+ * untrusted objective never enters argv (same rule as the other adapters).
+ * `--approval-mode plan` enforces a read-only contract (no file writes, no
+ * command execution) - the default, which matches the enforced capability
+ * declared for gemini in the fleet registry. A non-plan mode widens that to
+ * `fs.write.workspace` and is opt-in via the constructor.
+ *
+ * Gemini has no non-hanging auth-status subcommand we can rely on across
+ * versions, so auth is never probed; `probe()` reports AUTH_UNVERIFIED with
+ * a vendor hint instead of guessing a command.
+ */
+export type GeminiApprovalMode = 'plan' | 'default' | 'auto-edit' | 'yolo';
+
+export interface GeminiAdapterOptions extends CliAgentOptions {
+  /** Defaults to 'plan' (read-only). Other modes grant fs.write.workspace. */
+  approvalMode?: GeminiApprovalMode;
+}
+
+export class GeminiAdapter extends BaseCliAdapter {
+  readonly id = 'gemini-adapter';
+  readonly provider = 'gemini';
+  protected readonly binary = 'gemini';
+  protected readonly versionArgs = ['--version'];
+  protected readonly authArgs = ['auth', 'status'];
+  private readonly approvalMode: GeminiApprovalMode;
+
+  constructor(opts: GeminiAdapterOptions = {}) {
+    super(opts);
+    this.approvalMode = opts.approvalMode ?? 'plan';
+  }
+
+  /** No reliable auth-status command; report unverified rather than guess. */
+  protected override supportsAuthProbe = false;
+
+  protected override loginHint(): string {
+    return 'gemini auth login (verify your Gemini credentials before dispatching)';
+  }
+
+  protected enforcedFor() {
+    const read = 'fs.read.workspace';
+    const capabilities = this.approvalMode === 'plan'
+      ? [read, 'structured_output']
+      : [read, 'fs.write.workspace', 'structured_output'];
+    return { capabilities, isolation: 'workspace-fs' as const, unconfined: false };
+  }
+
+  protected buildDispatchArgs(): string[] {
+    // `-p` reads the objective from stdin; `--approval-mode plan` keeps it
+    // read-only. No vendor "skip permissions" flag is passed.
+    return ['-p', '--approval-mode', this.approvalMode];
+  }
+}
+
+/**
+ * Qwen Code CLI (qwen-code).
+ *
+ * A codex-family fork. `-p` selects headless mode and appends the prompt
+ * from STDIN, so the untrusted objective never enters argv. `--approval-mode
+ * plan` enforces read-only by default (matching the fleet registry's declared
+ * enforced capability for qwen-code); other modes widen to fs.write.workspace
+ * and are opt-in.
+ *
+ * qwen-code removed its `auth status` subcommand, so auth is never probed;
+ * `probe()` reports AUTH_UNVERIFIED with a hint to verify the API key /
+ * OAuth config out of band.
+ */
+export type QwenApprovalMode = 'plan' | 'default' | 'auto-edit' | 'auto' | 'yolo';
+
+export interface QwenAdapterOptions extends CliAgentOptions {
+  /** Defaults to 'plan' (read-only). Other modes grant fs.write.workspace. */
+  approvalMode?: QwenApprovalMode;
+}
+
+export class QwenCodeAdapter extends BaseCliAdapter {
+  readonly id = 'qwen-code-adapter';
+  readonly provider = 'qwen-code';
+  protected readonly binary = 'qwen';
+  protected readonly versionArgs = ['--version'];
+  protected readonly authArgs = ['auth', 'status'];
+  private readonly approvalMode: QwenApprovalMode;
+
+  constructor(opts: QwenAdapterOptions = {}) {
+    super(opts);
+    this.approvalMode = opts.approvalMode ?? 'plan';
+  }
+
+  /** qwen-code dropped `auth status`; report unverified rather than guess. */
+  protected override supportsAuthProbe = false;
+
+  protected override loginHint(): string {
+    return 'qwen-code authenticates via its API key / OAuth config - verify with `qwen` interactively before dispatching';
+  }
+
+  protected enforcedFor() {
+    const read = 'fs.read.workspace';
+    const capabilities = this.approvalMode === 'plan'
+      ? [read, 'structured_output']
+      : [read, 'fs.write.workspace', 'structured_output'];
+    return { capabilities, isolation: 'workspace-fs' as const, unconfined: false };
+  }
+
+  protected buildDispatchArgs(): string[] {
+    // `-p` reads the objective from stdin (deprecated in favour of a
+    // positional prompt, but the positional form would put untrusted text in
+    // argv, so we keep `-p`). `--approval-mode plan` keeps it read-only.
+    return ['-p', '--approval-mode', this.approvalMode];
   }
 }

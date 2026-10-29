@@ -56,6 +56,7 @@ function loginHint(adapterId: string): string {
   if (adapterId.includes('claude')) return 'run `claude auth login`';
   if (adapterId.includes('codex')) return 'run `codex login`';
   if (adapterId.includes('gemini')) return 'run `gemini auth login`';
+  if (adapterId.includes('qwen')) return 'verify qwen-code API key / OAuth config out of band';
   return 'complete the vendor login for this adapter';
 }
 

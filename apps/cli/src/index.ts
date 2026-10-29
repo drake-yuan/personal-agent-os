@@ -24,7 +24,7 @@ import {
   TASK_STATUS, RISK_LEVEL, loadSchemaById, validate,
 } from '@paos/contracts';
 import { openDatabase, migrate, appliedVersions, sqliteVersion } from '@paos/db';
-import { DemoAdapter, doctor, AdapterRegistry, CodexAdapter, ClaudeCodeAdapter, WorkBuddyAdapter } from '@paos/adapters';
+import { DemoAdapter, doctor, AdapterRegistry, CodexAdapter, ClaudeCodeAdapter, WorkBuddyAdapter, GeminiAdapter, QwenCodeAdapter } from '@paos/adapters';
 import type { AgentAdapter, DemoFixture } from '@paos/adapters';
 import { runContract, resolveApproval } from '@paos/runtime';
 import type { ContractV11, CheckContext } from '@paos/runtime';
@@ -215,6 +215,8 @@ export async function cmdDoctor(adapterId?: string, probeAuth = false): Promise<
   registry.register(new DemoAdapter(loadDemoFixtures()));
   registry.register(new CodexAdapter({ probeAuth }));
   registry.register(new ClaudeCodeAdapter({ probeAuth }));
+  registry.register(new GeminiAdapter({ probeAuth }));
+  registry.register(new QwenCodeAdapter({ probeAuth }));
   registry.register(new WorkBuddyAdapter());
   const candidates = registry.all();
   // Aliases resolve here too, so `doctor demo` and `run --adapter demo`
@@ -318,6 +320,8 @@ export const KNOWN_ADAPTERS: Array<{ id: string; aliases: string[] }> = [
   { id: 'demo-adapter', aliases: ['demo'] },
   { id: 'codex-adapter', aliases: [] },
   { id: 'claude-code-adapter', aliases: ['claude-code'] },
+  { id: 'gemini-adapter', aliases: ['gemini'] },
+  { id: 'qwen-code-adapter', aliases: ['qwen', 'qwen-code'] },
   // Gate G3 (OAuth app review) is open: selectable and fully structured, but
   // it fails closed until an endpoint and token are configured.
   { id: 'workbuddy-adapter', aliases: ['workbuddy'] },
@@ -353,6 +357,10 @@ export function buildAdapter(adapterId: string | undefined, fixtures: DemoFixtur
       return new CodexAdapter();
     case 'claude-code-adapter':
       return new ClaudeCodeAdapter();
+    case 'gemini-adapter':
+      return new GeminiAdapter();
+    case 'qwen-code-adapter':
+      return new QwenCodeAdapter();
     case 'workbuddy-adapter':
       return new WorkBuddyAdapter();
     default:
