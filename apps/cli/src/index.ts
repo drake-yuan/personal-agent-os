@@ -318,7 +318,7 @@ export function demoCheckContext(contract: ContractV11, fixtures: DemoFixture[])
  */
 export const KNOWN_ADAPTERS: Array<{ id: string; aliases: string[] }> = [
   { id: 'demo-adapter', aliases: ['demo'] },
-  { id: 'codex-adapter', aliases: [] },
+  { id: 'codex-adapter', aliases: ['codex'] },
   { id: 'claude-code-adapter', aliases: ['claude-code'] },
   { id: 'gemini-adapter', aliases: ['gemini'] },
   { id: 'qwen-code-adapter', aliases: ['qwen', 'qwen-code'] },
@@ -369,6 +369,23 @@ export function buildAdapter(adapterId: string | undefined, fixtures: DemoFixtur
 }
 
 /** `paos run <contract.json> [--adapter ID]` - execute the core chain end to end. */
+/**
+ * Derive the structured action type from the contract's required capabilities.
+ *
+ * `cmdRun` used to hardcode 'local-write', which forced every adapter to claim
+ * fs.write.workspace and made read-only adapters (gemini, qwen-code, the
+ * codex read-only sandbox) permanently un-dispatchable - the policy gate
+ * `adapter cannot enforce required capability fs.write.workspace` fired for all
+ * of them. The action type drives both the policy risk floor and the required
+ * capability, so it must follow the contract, not a constant.
+ */
+function deriveActionType(contract: ContractV11): 'read' | 'draft' | 'local-write' | 'external-send' | 'money' | 'delete' | 'trade' {
+  const caps = contract.requirements?.required_capabilities ?? [];
+  if (caps.includes('external.send')) return 'external-send';
+  if (caps.includes('fs.write.workspace') || caps.includes('process.exec')) return 'local-write';
+  return 'read';
+}
+
 export async function cmdRun(contractPath: string, dataDir: string, adapterId?: string): Promise<string> {
   const dbPath = path.join(dataDir, 'paos.db');
   if (!existsSync(dbPath)) return 'not initialized - run `paos init` first';
@@ -394,6 +411,7 @@ export async function cmdRun(contractPath: string, dataDir: string, adapterId?: 
       contract,
       workspace,
       checkContext,
+      actionType: deriveActionType(contract),
     });
     const lines = [
       `task ${result.taskId}: ${result.taskStatus}`,
