@@ -242,6 +242,10 @@ export function getDispatchIntent(db: DatabaseSync, id: string): DispatchIntentR
   return db.prepare('SELECT * FROM dispatch_intents WHERE id = ?').get(id) as DispatchIntentRow | undefined;
 }
 
+export function getDispatchIntentByKey(db: DatabaseSync, idempotencyKey: string): DispatchIntentRow | undefined {
+  return db.prepare('SELECT * FROM dispatch_intents WHERE idempotency_key = ?').get(idempotencyKey) as DispatchIntentRow | undefined;
+}
+
 export function updateDispatchIntent(db: DatabaseSync, id: string, patch: Patch): void {
   updateById(db, 'dispatch_intents', id, patch, DISPATCH_PATCHABLE);
 }

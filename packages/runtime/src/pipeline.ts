@@ -24,8 +24,8 @@ import { transition, acceptTask, requiresHuman, hashAction, hashScope, randomNon
 import type { Task, TaskStatus, Domain, RiskLevel } from '@paos/core';
 import { evaluatePolicy } from '@paos/policy';
 import {
-  insertTask, updateTask, insertWorkflowRun, updateWorkflowRun,
-  insertDispatchIntent, updateDispatchIntent, insertApproval,
+  insertTask, getTask, updateTask, insertWorkflowRun, getWorkflowRun, updateWorkflowRun,
+  insertDispatchIntent, getDispatchIntentByKey, updateDispatchIntent, insertApproval,
 } from '@paos/db';
 import { reduceDispatch } from './outbox.js';
 import type { DispatchEvent } from './outbox.js';
@@ -185,22 +185,63 @@ export async function runDispatchPhase(input: DispatchPhaseInput): Promise<Dispa
 
   // Outbox: the intent row is committed BEFORE any network call.
   const probe = await adapter.probe();
-  let intent: DispatchIntent = {
-    id: dispatchId, workflowRunId: runId, stepId: contract.step_id,
-    adapterId: adapter.id, provider: adapter.provider,
-    idempotencyKey: contract.policy.approval_ref ?? `${runId}-${contract.step_id}-${sha256(JSON.stringify(contract))}`,
-    contractHash: sha256(JSON.stringify(contract)),
-    state: 'pending', supportsServerIdempotency: probe.supportsServerIdempotency,
-    attemptCount: 0, createdAt: now(), updatedAt: now(),
-  };
-  insertDispatchIntent(db, {
-    id: intent.id, workflowRunId: intent.workflowRunId, stepId: intent.stepId,
-    adapterId: intent.adapterId, provider: intent.provider,
-    idempotencyKey: intent.idempotencyKey, contractHash: intent.contractHash,
-    state: intent.state,
-    supportsServerIdempotency: intent.supportsServerIdempotency,
-    createdAt: intent.createdAt, updatedAt: intent.updatedAt,
-  });
+  const idempotencyKey =
+    contract.policy.approval_ref ?? `${runId}-${contract.step_id}-${sha256(JSON.stringify(contract))}`;
+
+  // Idempotent re-dispatch: a contract carrying a stable idempotency key
+  // (same run_id + step + contract hash) must reuse the existing intent rather
+  // than crash on UNIQUE(dispatch_intents.idempotency_key) or double-insert.
+  const existing = getDispatchIntentByKey(db, idempotencyKey);
+  let intent: DispatchIntent;
+  if (existing) {
+    intent = {
+      id: existing.id,
+      workflowRunId: existing.workflow_run_id,
+      stepId: existing.step_id,
+      adapterId: existing.adapter_id,
+      provider: existing.provider,
+      idempotencyKey: existing.idempotency_key,
+      contractHash: existing.contract_hash,
+      state: existing.state as DispatchIntent['state'],
+      supportsServerIdempotency: existing.supports_server_idempotency === 1,
+      providerTaskId: existing.provider_task_id ?? undefined,
+      attemptCount: existing.attempt_count,
+      lastError: existing.last_error ?? undefined,
+      dispatchedAt: existing.dispatched_at ?? undefined,
+      resolvedAt: existing.resolved_at ?? undefined,
+      createdAt: existing.created_at,
+      updatedAt: existing.updated_at,
+    };
+  } else {
+    intent = {
+      id: dispatchId, workflowRunId: runId, stepId: contract.step_id,
+      adapterId: adapter.id, provider: adapter.provider,
+      idempotencyKey,
+      contractHash: sha256(JSON.stringify(contract)),
+      state: 'pending', supportsServerIdempotency: probe.supportsServerIdempotency,
+      attemptCount: 0, createdAt: now(), updatedAt: now(),
+    };
+    insertDispatchIntent(db, {
+      id: intent.id, workflowRunId: intent.workflowRunId, stepId: intent.stepId,
+      adapterId: intent.adapterId, provider: intent.provider,
+      idempotencyKey: intent.idempotencyKey, contractHash: intent.contractHash,
+      state: intent.state,
+      supportsServerIdempotency: intent.supportsServerIdempotency,
+      createdAt: intent.createdAt, updatedAt: intent.updatedAt,
+    });
+  }
+
+  // Idempotent re-dispatch: an intent already exists for this idempotency key,
+  // meaning this exact dispatch was already attempted. Reuse the recorded outcome
+  // rather than re-running the adapter or re-verifying (an outbox must never
+  // double-execute on replay).
+  if (existing) {
+    const s = existing.state;
+    const runStatus = s === 'rejected' ? 'failed'
+      : s === 'unknown_outcome' ? 'unknown_outcome'
+      : 'succeeded';
+    return { task, dispatchId: existing.id, dispatchState: s, runStatus };
+  }
 
   intent = reduceDispatch(intent, { type: 'dispatch', at: now() });
   updateDispatchIntent(db, intent.id, { state: intent.state, dispatched_at: now(), updated_at: now() });
@@ -349,11 +390,18 @@ export async function runContract(input: RunInput): Promise<RunResult> {
     updatedAt: t0,
   };
 
-  insertTask(db, {
-    id: task.id, domain: task.domain, title: task.title,
-    nextAction: task.nextAction, doneCondition: task.doneCondition,
-    status: task.status, risk: task.risk, createdAt: t0, updatedAt: t0,
-  });
+  // Idempotent dispatch: a replayed contract (same stable task_id) must not
+  // crash on a UNIQUE constraint. If the task row already exists (e.g. a prior
+  // dispatch of this same contract, or a retried CLI invocation against one
+  // data-dir), reuse it instead of re-inserting and let the saveTask() UPDATEs
+  // downstream carry the state forward.
+  if (!getTask(db, task.id)) {
+    insertTask(db, {
+      id: task.id, domain: task.domain, title: task.title,
+      nextAction: task.nextAction, doneCondition: task.doneCondition,
+      status: task.status, risk: task.risk, createdAt: t0, updatedAt: t0,
+    });
+  }
 
   if (!verdict.allowed) {
     task = { ...task, terminalReason: verdict.reason };
@@ -365,13 +413,15 @@ export async function runContract(input: RunInput): Promise<RunResult> {
     };
   }
 
-  insertWorkflowRun(db, {
-    id: runId, workflowId: contract.workflow.id,
-    workflowVersion: contract.workflow.version, domain: contract.domain,
-    taskId, status: 'planned', codeVersion: 'v0.2',
-    inputRef: `contract:${sha256(JSON.stringify(contract))}`,
-    createdAt: t0, updatedAt: t0,
-  });
+  if (!getWorkflowRun(db, runId)) {
+    insertWorkflowRun(db, {
+      id: runId, workflowId: contract.workflow.id,
+      workflowVersion: contract.workflow.version, domain: contract.domain,
+      taskId, status: 'planned', codeVersion: 'v0.2',
+      inputRef: `contract:${sha256(JSON.stringify(contract))}`,
+      createdAt: t0, updatedAt: t0,
+    });
+  }
 
   const advance = (to: TaskStatus): void => {
     task = transition(task, to, now());

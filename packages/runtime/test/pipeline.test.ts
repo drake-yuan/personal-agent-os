@@ -192,4 +192,29 @@ describe('core chain: contract -> dispatch -> verification -> done', () => {
     expect(r.taskStatus).toBe('rejected');
     db.close();
   });
+
+  it('replaying a contract with a stable task_id does not crash on UNIQUE (idempotent re-dispatch)', async () => {
+    const db = freshDb();
+    const sharedId = 'task_replay_stable';
+    const base = contract({ task_id: sharedId, workflow_run_id: 'wfr_replay' });
+
+    // First dispatch inserts the task row.
+    const first = await runContract({
+      db, adapter: fakeAdapter(), contract: base,
+      workspace: '/ws', checkContext: passingContext,
+    });
+    expect(first.taskId).toBe(sharedId);
+    expect(first.taskStatus).not.toBe('rejected');
+
+    // Replay the SAME contract (same task_id) against the same data-dir.
+    // Before the idempotency guard this threw "UNIQUE constraint failed: tasks.id".
+    const second = await runContract({
+      db, adapter: fakeAdapter(), contract: base,
+      workspace: '/ws', checkContext: passingContext,
+    });
+    expect(second.taskId).toBe(sharedId);
+    expect(second.taskStatus).not.toBe('rejected');
+    expect(second.runStatus).not.toBe('failed');
+    db.close();
+  });
 });

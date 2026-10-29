@@ -4,7 +4,7 @@ export type { Migration, MigrateResult } from './migrate.js';
 export {
   insertTask, getTask, updateTask,
   insertWorkflowRun, getWorkflowRun, updateWorkflowRun,
-  insertDispatchIntent, getDispatchIntent, updateDispatchIntent,
+  insertDispatchIntent, getDispatchIntent, getDispatchIntentByKey, updateDispatchIntent,
   insertApproval, getApproval, updateApproval, pendingApprovals,
 } from './repositories.js';
 export type {
