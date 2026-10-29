@@ -28,6 +28,39 @@ import { DemoAdapter, doctor, AdapterRegistry, CodexAdapter, ClaudeCodeAdapter, 
 import type { AgentAdapter, DemoFixture } from '@paos/adapters';
 import { runContract, resolveApproval } from '@paos/runtime';
 import type { ContractV11, CheckContext } from '@paos/runtime';
+
+/**
+ * Load a git-ignored `.env` (if present) into process.env. Only variables that
+ * are not already set are injected, so OS-level env vars always win. This is a
+ * minimal, dependency-free parser on purpose: secrets stay in a file that never
+ * reaches git or the chat log, and the adapter reads them via process.env.
+ */
+function loadLocalEnv(): void {
+  let dir = process.cwd();
+  for (let i = 0; i < 5; i++) {
+    const candidate = path.join(dir, '.env');
+    if (existsSync(candidate)) {
+      const raw = readFileSync(candidate, 'utf8');
+      for (const line of raw.split('\n')) {
+        const m = line.match(/^\s*([\w.]+)\s*=\s*(.*?)\s*$/);
+        if (!m) continue;
+        const key = m[1];
+        if (key === undefined) continue;
+        let val = m[2] ?? '';
+        if (val.length >= 2 && ((val[0] === '"' && val[val.length - 1] === '"') ||
+            (val[0] === "'" && val[val.length - 1] === "'"))) {
+          val = val.slice(1, -1);
+        }
+        if (process.env[key] === undefined) process.env[key] = val;
+      }
+      break;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+}
+loadLocalEnv();
 import { pendingApprovals } from '@paos/db';
 import { runGateSuite, formatSuite } from '@paos/evaluation';
 import {
