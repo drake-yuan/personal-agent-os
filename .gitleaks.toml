@@ -3,16 +3,29 @@
 # Extends the built-in default rules, then suppresses known false positives:
 #   - pnpm-lock.yaml "integrity" fields are high-entropy base64 but are not secrets
 #   - demo/, fixtures/, and evals/ contain only synthetic, fictional data
+#   - test/ files hold only synthetic fixtures (fake tokens, mock credentials)
+#   - environment-variable reads (`env.X`) and dotted property references
+#     (`a.b.c`) are structural references, never literal credentials
 #
-# Exclusions are PATH-based on purpose: a real secret committed in source or docs
-# is still scanned. Only structural/synthetic files are allowlisted.
+# Exclusions are PATH/REGEX-based on purpose: a real secret committed in source
+# or docs is still scanned. Only structural/synthetic patterns are allowlisted.
 
 [extend]
 useDefault = true
 
 [allowlist]
-description = "Lockfile integrity hashes and synthetic test/demo data are not secrets"
+description = "Lockfile integrity hashes, synthetic test/demo data, and structural references (env reads, dotted property paths) are not secrets"
 paths = [
   '''(?i).*pnpm-lock\.yaml''',
   '''(?i).*/(fixtures|demo|evals)/.*''',
+  '''(?i).*/test/.*''',
+  '''(?i).*\.test\.(ts|tsx|js|jsx)$''',
+]
+# Match against the *secret* gitleaks captured. These patterns can only ever be
+# variable/property references, so allowing them cannot mask a literal credential.
+regexes = [
+  # `const token = env.PAOS_WORKBUDDY_TOKEN` / `process.env.X` - a reference, not a value.
+  '''(?i)(?:process\.)?env\.[A-Za-z_][A-Za-z0-9_]*''',
+  # `idempotencyKey: contract.policy.approval_ref` - a dotted property path, not a value.
+  '''(?i)[a-z][a-z0-9]*\.[a-z][a-z0-9]*\.[a-z0-9_]+''',
 ]

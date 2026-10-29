@@ -9,7 +9,14 @@ jobs:
   verify:
     runs-on: ubuntu-24.04
     steps:
+      # fetch-depth: 0 gives gitleaks-action the full history it needs to resolve
+      # the push diff range (e.g. `<prev>^..<head>`). A shallow clone (depth 1,
+      # the default) lacks the parent commit, so gitleaks' git-diff scan fails
+      # with "unknown revision ... not in the working tree" and the job errors
+      # out even when no secret exists. See gitleaks-action README.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: pnpm/action-setup@v4
         with:
