@@ -23,6 +23,7 @@ import { fileURLToPath } from 'node:url';
 import {
   TASK_STATUS, RISK_LEVEL, loadSchemaById, validate,
 } from '@paos/contracts';
+import { normalizeHostPath } from '@paos/core';
 import { openDatabase, migrate, appliedVersions, sqliteVersion } from '@paos/db';
 import { DemoAdapter, doctor, AdapterRegistry, CodexAdapter, ClaudeCodeAdapter, WorkBuddyAdapter, GeminiAdapter, QwenCodeAdapter } from '@paos/adapters';
 import type { AgentAdapter, DemoFixture } from '@paos/adapters';
@@ -419,11 +420,29 @@ function deriveActionType(contract: ContractV11): 'read' | 'draft' | 'local-writ
   return 'read';
 }
 
+/**
+ * Normalize the portable paths a contract declares (workspace root and policy
+ * scope_paths) to the host's native form. Contracts are JSON and may use POSIX
+ * paths (e.g. "/tmp/ws"); on Windows those are not valid cwds and never match the
+ * native filesystem paths the snapshot / evidence layers observe. Normalizing at
+ * the external-JSON boundary keeps the rest of the engine host-agnostic.
+ * Idempotent: native paths pass through unchanged.
+ */
+export function normalizeContractPaths(c: ContractV11): ContractV11 {
+  const workspace = normalizeHostPath(c.inputs?.workspace ?? process.cwd());
+  const scope_paths = (c.requirements?.scope_paths ?? []).map(normalizeHostPath);
+  return {
+    ...c,
+    inputs: { ...c.inputs, workspace },
+    requirements: { ...c.requirements, scope_paths },
+  };
+}
+
 export async function cmdRun(contractPath: string, dataDir: string, adapterId?: string): Promise<string> {
   const dbPath = path.join(dataDir, 'paos.db');
   if (!existsSync(dbPath)) return 'not initialized - run `paos init` first';
   if (!existsSync(contractPath)) return `contract not found: ${contractPath}`;
-  const contract = JSON.parse(readFileSync(contractPath, 'utf8')) as ContractV11;
+  const contract = normalizeContractPaths(JSON.parse(readFileSync(contractPath, 'utf8')) as ContractV11);
   const fixtures = loadDemoFixtures();
   const db = openDatabase(dbPath);
   try {

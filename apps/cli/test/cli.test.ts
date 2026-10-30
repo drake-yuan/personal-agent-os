@@ -2,7 +2,7 @@ import { describe, expect, it, beforeAll, afterAll } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { parseArgs, cmdInit, cmdStatus, cmdDoctor, cmdPluginInspect, cmdApprovals, cmdEvals, buildAdapter, canonicalAdapterId, cmdBackup, cmdRestore, cmdMigrate, createBackup } from '../src/index.js';
+import { parseArgs, cmdInit, cmdStatus, cmdDoctor, cmdPluginInspect, cmdApprovals, cmdEvals, buildAdapter, canonicalAdapterId, cmdBackup, cmdRestore, cmdMigrate, createBackup, normalizeContractPaths } from '../src/index.js';
 
 // Node 22.22 bundles SQLite 3.51.2, just below the 3.51.3 WAL-reset
 // gate. Use the documented escape hatch for tests (design Section 6.3 rule 6).
@@ -185,5 +185,40 @@ describe('paos CLI', () => {
       expect(parsed.ok).toBe(true);
       expect(parsed.results.length).toBeGreaterThan(0);
     });
+  });
+});
+
+describe('normalizeContractPaths (cross-platform boundary)', () => {
+  it('normalizes a POSIX workspace and scope_paths to the host native form', () => {
+    const raw = {
+      contract_version: '1.1', task_id: 't1', workflow_run_id: 'w1', step_id: 's1',
+      objective: 'read seed.txt', domain: 'read', workflow: { id: 'wf', version: '1' },
+      inputs: { workspace: '/tmp/paos-cli-test' },
+      requirements: {
+        required_capabilities: ['fs.read.workspace'],
+        scope_paths: ['/tmp/paos-cli-test', '/tmp/paos-cli-test/out'],
+        data_classification: 'public' as const,
+      },
+    } as unknown as ContractV11;
+    const norm = normalizeContractPaths(raw);
+    if (process.platform === 'win32') {
+      expect(path.isAbsolute(norm.inputs.workspace)).toBe(true);
+      expect(norm.inputs.workspace).toContain('\\');
+      expect(norm.inputs.workspace.startsWith('/tmp')).toBe(false);
+      for (const sc of norm.requirements.scope_paths) {
+        expect(path.isAbsolute(sc)).toBe(true);
+        expect(sc).toContain('\\');
+      }
+    } else {
+      expect(norm.inputs.workspace).toBe('/tmp/paos-cli-test');
+    }
+  });
+
+  it('is idempotent (normalizing twice equals normalizing once)', () => {
+    const raw = { inputs: { workspace: '/tmp/x' }, requirements: { scope_paths: ['/tmp/x'] } } as unknown as ContractV11;
+    const once = normalizeContractPaths(raw);
+    const twice = normalizeContractPaths(once);
+    expect(twice.inputs.workspace).toBe(once.inputs.workspace);
+    expect(twice.requirements.scope_paths).toEqual(once.requirements.scope_paths);
   });
 });
