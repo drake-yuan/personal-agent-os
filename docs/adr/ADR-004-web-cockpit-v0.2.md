@@ -193,3 +193,54 @@ faster than ~1 Hz, or more than one front-end maintainer.
   - Validation: `pnpm -r typecheck` clean across 10 packages; full repo `pnpm -r test` green
     (312 tests); `pnpm audit --audit-level high` against npmjs clean. No new external
     runtime dependency (api deps are workspace-internal).
+
+- **2026-10-30 — OD3 resolved by tracing `run -> input_ref -> contract` (no code change).**
+  The approval blocker named in the Consequences ("approving may still require the CLI to
+  resume a chain, which remains open until the run -> `input_ref` -> contract path is traced")
+  is now traced and recorded in
+  [reviews/2026-10-30-browser-approval-trace.md](../reviews/2026-10-30-browser-approval-trace.md).
+  Findings, with file:line evidence in that note:
+  - `input_ref` is written **once**, at `packages/runtime/src/pipeline.ts:433`, as
+    `contract:${sha256(JSON.stringify(contract))}` - a **one-way content digest**, not a path
+    and not a stored snapshot. Therefore there is nothing for the server to locate: the OD3
+    "path-resolution + traversal-safety" premise does not hold, and there is no stored body to
+    traverse to.
+  - The contract is genuinely **required to approve**, and not merely to resume: even the
+    no-adapter path (approval left "spendable", task -> running) runs
+    `checkGate` against `contract.objective` and `contract.requirements.scope_paths`
+    (`packages/runtime/src/approvals.ts:163-168, :194-198`), and `isSupersededByChange` voids
+    an approval whose objective/scope changed (`:170`). So the contract is what makes the
+    binding verifiable; without it the risk gate cannot be checked at all.
+  - Consequently the gap is **content persistence**, not path resolution. Three options are
+    recorded: (A) persist the frozen contract per run and repoint `input_ref` - the only option
+    that unlocks true browser approve, but it changes `input_ref` semantics and the `dataDir`
+    storage contract; (B) let the browser upload the contract - rejected, it forks the source
+    of truth outside `@paos/contracts`/drift-check; (C) weaken to "record intent" - this lowers
+    the risk gate itself and is rejected as a safety regression.
+  - **Deny** needs no contract today (`approvals.ts:143-159`) and is safe to expose; the
+    cockpit can additionally render the exact `paos approve <id> --contract <path>` command the
+    operator must run, since only the operator holds the contract.
+  - Two side defects found: the DDL comment at `migrations/0001_init_v2.sql:177`
+    ("frozen run snapshot (contract + inputs)") documents an intent never implemented; and no
+    code ever reads `input_ref` back, so the digest is write-only metadata today. Left
+    untouched - migrations may be integrity-checked and no behaviour depends on either.
+  - Net effect: **no write surface was added**; the write/approval decision stays gated, but
+    it is now gated with evidence instead of with an open question.
+
+- **2026-10-30 — drift-check extended to cover the `@paos/api` DTO layer (defensive, still
+  proposed).** ADR-004's consequences require the DTO layer to be kept in sync deliberately;
+  the CI drift-check previously only covered `@paos/contracts` enums vs DDL docs + the JSON
+  schema, leaving the cockpit's `COCKPIT_DISTRIBUTION_ENUMS` (the human-authored
+  field→canonical-enum mapping) unguarded. This closes that gap:
+  - `packages/contracts/src/drift-check.ts` now dynamically imports the built
+    `packages/api/dist/constants.js` and asserts, for each of the four cockpit distribution
+    fields (`tasksByStatus`, `tasksByRisk`, `runsByStatus`, `dispatchByState`): (1) the key
+    set matches exactly; (2) the enum values equal the canonical enum the field is meant to
+    project (`TASK_STATUS` / `RISK_LEVEL` / `WORKFLOW_RUN_STATUS` / `DISPATCH_STATE`). A wrong
+    mapping (e.g. `tasksByStatus` pointed at `RISK_LEVEL`), a dropped key, or a shrunk enum
+    now fails CI instead of silently shipping a broken board.
+  - Imported by file path (not a package dependency) so `@paos/contracts` never takes a
+    circular edge on `@paos/api`; CI order (Build → drift:check) guarantees `api/dist` exists.
+  - Verified fail-closed: flipping the expected mapping in the script made `drift:check` exit
+    1 with a precise `api.<field>` diff; restoring it returns `drift check OK` (message now
+    names the DTO coverage). Full `pnpm -r typecheck` clean across 10 packages.

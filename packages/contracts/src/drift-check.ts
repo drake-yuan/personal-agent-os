@@ -6,7 +6,7 @@
  */
 import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
   TASK_STATUS, WORKFLOW_RUN_STATUS, STEP_STATUS, DISPATCH_STATE,
   APPROVAL_DECISION, RISK_LEVEL, STEP_KIND,
@@ -50,6 +50,41 @@ try {
     properties: { policy: { properties: { risk_level: { enum: string[] } } } };
   };
   check('contract.policy.risk_level', contract.properties.policy.properties.risk_level.enum, RISK_LEVEL);
+
+  // DTO boundary (ADR-004): the cockpit payload's distribution maps must be a
+  // faithful, complete projection of the canonical enums. COCKPIT_DISTRIBUTION_ENUMS
+  // in @paos/api is the human-authored field->enum mapping; pin it so a refactor
+  // that points a field at the wrong enum (or drops a key) fails CI instead of
+  // silently shipping a broken board. @paos/api is built before drift:check in CI
+  // (Build runs first), and we import its built artifact by file path so the
+  // contracts package never takes a (circular) dependency on @paos/api.
+  try {
+    const apiConstantsUrl = pathToFileURL(
+      path.join(repoRoot(), 'packages/api/dist/constants.js'),
+    ).href;
+    const apiConstants = (await import(apiConstantsUrl)) as {
+      COCKPIT_DISTRIBUTION_ENUMS: Record<string, readonly string[]>;
+    };
+    const expected: Record<string, readonly string[]> = {
+      tasksByStatus: TASK_STATUS,
+      tasksByRisk: RISK_LEVEL,
+      runsByStatus: WORKFLOW_RUN_STATUS,
+      dispatchByState: DISPATCH_STATE,
+    };
+    const actualKeys = Object.keys(apiConstants.COCKPIT_DISTRIBUTION_ENUMS).sort();
+    const expectedKeys = Object.keys(expected).sort();
+    if (JSON.stringify(actualKeys) !== JSON.stringify(expectedKeys)) {
+      failures.push(
+        `api.COCKPIT_DISTRIBUTION_ENUMS keys drift: have [${actualKeys.join(',')}], want [${expectedKeys.join(',')}]`,
+      );
+    }
+    for (const field of expectedKeys) {
+      const actual = apiConstants.COCKPIT_DISTRIBUTION_ENUMS[field] ?? [];
+      check(`api.${field}`, [...actual], expected[field] as readonly string[]);
+    }
+  } catch (err) {
+    failures.push(`drift check crashed loading @paos/api: ${(err as Error).message}`);
+  }
 } catch (err) {
   failures.push(`drift check crashed: ${(err as Error).message}`);
 }
@@ -59,4 +94,4 @@ if (failures.length > 0) {
   for (const f of failures) console.error(`  - ${f}`);
   process.exit(1);
 }
-console.log('drift check OK: enums, DDL docs and schemas agree');
+console.log('drift check OK: enums, DDL docs, schemas and @paos/api DTO distribution maps agree');
