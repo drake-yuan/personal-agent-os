@@ -13,6 +13,8 @@ data/*.db
 data/*.db-wal
 data/*.db-shm
 data/eval-runs/
+# host-specific path alias table (cross-machine contract paths) - never commit
+data/path-aliases.json
 
 # secrets - never commit
 .env

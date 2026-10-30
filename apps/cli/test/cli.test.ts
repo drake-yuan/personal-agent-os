@@ -1,8 +1,8 @@
-import { describe, expect, it, beforeAll, afterAll } from 'vitest';
+import { describe, expect, it, beforeAll, afterAll, afterEach } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { parseArgs, cmdInit, cmdStatus, cmdDoctor, cmdPluginInspect, cmdApprovals, cmdEvals, buildAdapter, canonicalAdapterId, cmdBackup, cmdRestore, cmdMigrate, createBackup, normalizeContractPaths } from '../src/index.js';
+import { parseArgs, cmdInit, cmdStatus, cmdDoctor, cmdPluginInspect, cmdApprovals, cmdEvals, buildAdapter, canonicalAdapterId, cmdBackup, cmdRestore, cmdMigrate, createBackup, normalizeContractPaths, loadPathAliases, type PathAlias } from '../src/index.js';
 
 // Node 22.22 bundles SQLite 3.51.2, just below the 3.51.3 WAL-reset
 // gate. Use the documented escape hatch for tests (design Section 6.3 rule 6).
@@ -220,5 +220,76 @@ describe('normalizeContractPaths (cross-platform boundary)', () => {
     const twice = normalizeContractPaths(once);
     expect(twice.inputs.workspace).toBe(once.inputs.workspace);
     expect(twice.requirements.scope_paths).toEqual(once.requirements.scope_paths);
+  });
+
+  it('applies a host alias table to rewrite a foreign workspace prefix', () => {
+    const aliases: PathAlias[] = [{ from: '/Users/drake/ws', to: 'C:\\Users\\DRAKE\\ws' }];
+    const raw = {
+      contract_version: '1.1', task_id: 't1', workflow_run_id: 'w1', step_id: 's1',
+      objective: 'read seed.txt', domain: 'read', workflow: { id: 'wf', version: '1' },
+      inputs: { workspace: '/Users/drake/ws' },
+      requirements: {
+        required_capabilities: ['fs.read.workspace'],
+        scope_paths: ['/Users/drake/ws/src'],
+        data_classification: 'public' as const,
+      },
+    } as unknown as ContractV11;
+    const norm = normalizeContractPaths(raw, aliases);
+    if (process.platform === 'win32') {
+      expect(norm.inputs.workspace).toBe('C:\\Users\\DRAKE\\ws');
+      expect(norm.requirements.scope_paths[0]).toBe('C:\\Users\\DRAKE\\ws\\src');
+    } else {
+      // On POSIX the alias `to` is Windows-style but still absolute & idempotent.
+      expect(path.isAbsolute(norm.inputs.workspace)).toBe(true);
+    }
+    // Without an alias table the foreign prefix is still resolved on the host
+    // (POSIX keeps it, Windows maps it onto the current drive) - the alias is
+    // what makes it land on the intended native location.
+    const noAlias = normalizeContractPaths(raw);
+    if (process.platform === 'win32') {
+      expect(noAlias.inputs.workspace).toBe(path.resolve('/Users/drake/ws'));
+    } else {
+      expect(noAlias.inputs.workspace).toBe('/Users/drake/ws');
+    }
+  });
+});
+
+describe('loadPathAliases (cross-machine config)', () => {
+  const prev = process.env.PAOS_PATH_ALIASES;
+  afterEach(() => {
+    if (prev === undefined) delete process.env.PAOS_PATH_ALIASES;
+    else process.env.PAOS_PATH_ALIASES = prev;
+  });
+
+  it('reads a JSON array directly from the env var', () => {
+    process.env.PAOS_PATH_ALIASES = JSON.stringify([{ from: '/Users/drake/ws', to: 'C:\\Users\\DRAKE\\ws' }]);
+    const aliases = loadPathAliases(dir);
+    expect(aliases).toEqual([{ from: '/Users/drake/ws', to: 'C:\\Users\\DRAKE\\ws' }]);
+  });
+
+  it('reads a JSON file path from the env var', () => {
+    const f = path.join(dir, 'aliases-file.json');
+    writeFileSync(f, JSON.stringify([{ from: '/home/drake', to: 'D:\\drake' }]));
+    process.env.PAOS_PATH_ALIASES = f;
+    expect(loadPathAliases(dir)).toEqual([{ from: '/home/drake', to: 'D:\\drake' }]);
+  });
+
+  it('falls back to <dataDir>/path-aliases.json', () => {
+    const f = path.join(path.resolve(dir), 'path-aliases.json');
+    writeFileSync(f, JSON.stringify([{ from: '/a', to: 'C:\\a' }]));
+    try {
+      expect(loadPathAliases(dir)).toEqual([{ from: '/a', to: 'C:\\a' }]);
+    } finally {
+      rmSync(f, { force: true });
+    }
+  });
+
+  it('returns [] when no source exists (pristine checkout)', () => {
+    expect(loadPathAliases(dir)).toEqual([]);
+  });
+
+  it('drops malformed entries and tolerates an unparseable file', () => {
+    process.env.PAOS_PATH_ALIASES = JSON.stringify([{ from: '/a', to: 'C:\\a' }, { nope: true }, 'garbage']);
+    expect(loadPathAliases(dir)).toEqual([{ from: '/a', to: 'C:\\a' }]);
   });
 });

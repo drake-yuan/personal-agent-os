@@ -23,7 +23,7 @@ import { fileURLToPath } from 'node:url';
 import {
   TASK_STATUS, RISK_LEVEL, loadSchemaById, validate,
 } from '@paos/contracts';
-import { normalizeHostPath } from '@paos/core';
+import { normalizeHostPath, type PathAlias } from '@paos/core';
 import { openDatabase, migrate, appliedVersions, sqliteVersion } from '@paos/db';
 import { DemoAdapter, doctor, AdapterRegistry, CodexAdapter, ClaudeCodeAdapter, WorkBuddyAdapter, GeminiAdapter, QwenCodeAdapter } from '@paos/adapters';
 import type { AgentAdapter, DemoFixture } from '@paos/adapters';
@@ -428,9 +428,9 @@ function deriveActionType(contract: ContractV11): 'read' | 'draft' | 'local-writ
  * the external-JSON boundary keeps the rest of the engine host-agnostic.
  * Idempotent: native paths pass through unchanged.
  */
-export function normalizeContractPaths(c: ContractV11): ContractV11 {
-  const workspace = normalizeHostPath(c.inputs?.workspace ?? process.cwd());
-  const scope_paths = (c.requirements?.scope_paths ?? []).map(normalizeHostPath);
+export function normalizeContractPaths(c: ContractV11, aliases?: readonly PathAlias[]): ContractV11 {
+  const workspace = normalizeHostPath(c.inputs?.workspace ?? process.cwd(), aliases);
+  const scope_paths = (c.requirements?.scope_paths ?? []).map((sp) => normalizeHostPath(sp, aliases));
   return {
     ...c,
     inputs: { ...c.inputs, workspace },
@@ -438,11 +438,59 @@ export function normalizeContractPaths(c: ContractV11): ContractV11 {
   };
 }
 
+/**
+ * Load host-specific path aliases so portable contracts authored on one machine
+ * resolve on this one (e.g. a macOS `/Users/drake/...` workspace becomes the
+ * native `C:\Users\DRAKE\...` on Windows). Source precedence:
+ *
+ *   1. `PAOS_PATH_ALIASES` env var: either a JSON array directly, or a path to
+ *      a JSON file holding the array.
+ *   2. `<dataDir>/path-aliases.json` (git-ignored, host-specific).
+ *
+ * A missing or unparseable alias source degrades to "no aliases" rather than a
+ * hard error, so a pristine checkout still runs. Each entry must have string
+ * `from`/`to`; malformed entries are dropped with a warning.
+ */
+export function loadPathAliases(dataDir: string): PathAlias[] {
+  let file: string | undefined;
+  const fromEnv = process.env.PAOS_PATH_ALIASES;
+  if (fromEnv) {
+    try {
+      const parsed = JSON.parse(fromEnv);
+      if (Array.isArray(parsed)) return sanitizeAliases(parsed);
+    } catch {
+      file = fromEnv; // treat the env value as a file path
+    }
+  }
+  file = file ?? path.join(path.resolve(dataDir), 'path-aliases.json');
+  if (!existsSync(file)) return [];
+  try {
+    const parsed = JSON.parse(readFileSync(file, 'utf8'));
+    if (Array.isArray(parsed)) return sanitizeAliases(parsed);
+  } catch {
+    // Best-effort: an unparseable alias file must not break the run.
+    process.stderr.write(`warning: could not parse path aliases at ${file}\n`);
+  }
+  return [];
+}
+
+/** Keep only well-formed alias entries (string from/to). */
+function sanitizeAliases(raw: unknown[]): PathAlias[] {
+  const out: PathAlias[] = [];
+  for (const e of raw) {
+    if (e && typeof e === 'object' && typeof (e as PathAlias).from === 'string' && typeof (e as PathAlias).to === 'string') {
+      out.push({ from: (e as PathAlias).from, to: (e as PathAlias).to });
+    }
+  }
+  return out;
+}
+
 export async function cmdRun(contractPath: string, dataDir: string, adapterId?: string): Promise<string> {
   const dbPath = path.join(dataDir, 'paos.db');
   if (!existsSync(dbPath)) return 'not initialized - run `paos init` first';
   if (!existsSync(contractPath)) return `contract not found: ${contractPath}`;
-  const contract = normalizeContractPaths(JSON.parse(readFileSync(contractPath, 'utf8')) as ContractV11);
+  const aliases = loadPathAliases(dataDir);
+  const contract = normalizeContractPaths(JSON.parse(readFileSync(contractPath, 'utf8')) as ContractV11, aliases);
   const fixtures = loadDemoFixtures();
   const db = openDatabase(dbPath);
   try {
@@ -520,7 +568,7 @@ export async function cmdApprove(args: ParsedArgs): Promise<string> {
   let contract: ContractV11 | undefined;
   if (contractPath) {
     if (!existsSync(contractPath)) return `contract not found: ${contractPath}`;
-    contract = JSON.parse(readFileSync(contractPath, 'utf8')) as ContractV11;
+    contract = normalizeContractPaths(JSON.parse(readFileSync(contractPath, 'utf8')) as ContractV11, loadPathAliases(dataDir));
   }
 
   const db = openDatabase(dbPath);
@@ -595,6 +643,8 @@ const COMMANDS: Record<string, (args: ParsedArgs) => Promise<string> | string> =
     '  paos restore <dir> [--data-dir DIR]   restore a backup',
     '  paos migrate [--data-dir DIR]  apply pending schema migrations (checkpoint first)',
     '  paos run <contract.json> [--adapter ID]   execute the core chain',
+    '                                 cross-machine paths: <data-dir>/path-aliases.json',
+    '                                 or $PAOS_PATH_ALIASES (JSON array or file path)',
     `                                 ID: ${describeKnownAdapters()} (default: demo-adapter)`,
     '  paos approvals                 list approvals waiting on a human',
     '  paos approve <id> --contract F [--token T] [--deny] [--by NAME]',
