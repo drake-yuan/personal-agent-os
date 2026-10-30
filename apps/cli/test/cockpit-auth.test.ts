@@ -218,6 +218,41 @@ describe('cockpit HTTP service (via app.request)', () => {
     expect(html).toContain('Ship the cockpit');
   });
 
+  it('live page embeds the polling client and a token attribute', async () => {
+    const res = await loopbackReq('/', { authorization: `Bearer ${SECRET}` });
+    const html = await res.text();
+    // Polling client targets the fragment route and swaps #cockpit-root.
+    expect(html).toContain('id="cockpit-root"');
+    expect(html).toContain('/api/cockpit');
+    expect(html).toContain('setInterval(refresh, 5000)');
+    // Token delivered to the same-origin poller via a (escaped) data attribute.
+    expect(html).toContain('id="cfg"');
+    expect(html).toContain('data-token=');
+  });
+
+  it('live page does not leak the token into a breakable script string', async () => {
+    const res = await loopbackReq('/', { authorization: `Bearer ${SECRET}` });
+    const html = await res.text();
+    // The token must live in an attribute, never inline as a raw JS string that a
+    // </script> could break out of. Assert it is not placed as `var token = "..."`.
+    expect(html).not.toMatch(/var token = "[^"]*"/);
+  });
+
+  it('serves the HTML fragment at /api/cockpit (text/html) with auth', async () => {
+    const res = await loopbackReq('/api/cockpit', { authorization: `Bearer ${SECRET}` });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toContain('text/html');
+    const html = await res.text();
+    // The fragment is the visual body only - no <html>/<body> wrapper.
+    expect(html).not.toContain('<html');
+    expect(html).toContain('Ship the cockpit');
+  });
+
+  it('returns 401 for /api/cockpit without a token', async () => {
+    const res = await loopbackReq('/api/cockpit');
+    expect(res.status).toBe(401);
+  });
+
   it('returns 409 when the DB is not initialized', async () => {
     // Fresh dir with only the secret, no paos.db.
     const empty = mkdtempSync(join(tmpdir(), 'paos-empty-'));

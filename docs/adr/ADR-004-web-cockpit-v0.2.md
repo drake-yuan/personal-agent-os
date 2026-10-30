@@ -137,3 +137,31 @@ faster than ~1 Hz, or more than one front-end maintainer.
   - **What is deliberately NOT in P0:** no write endpoints, no browser-side approval, no
     contract editing, no DTO package (`@paos/api`). Those are the gated follow-ups once
     real usage justifies promoting Alt.1 from proposed -> accepted.
+
+- **2026-10-30 — Alt.1 live view layer added (still proposed).** The service now
+  justifies itself with genuine live refresh, the original reason Alt.1 exists over
+  the static board:
+  - `dashboard.ts` extracted `renderCockpitInner(snap)` (the visual body: cards +
+    distributions + tables + footer). `renderDashboardHtml` (Alt.0 static file) and
+    the live page both consume it, so the three surfaces can never diverge.
+  - `renderLiveCockpitHtml(snap, token)` wraps the body in a `#cockpit-root`
+    container and embeds a **zero-dependency Vanilla-TS polling client** (no Vite,
+    no framework, no build step). It re-fetches `/api/cockpit` every 5s and swaps
+    `#cockpit-root.innerHTML`, pausing on `visibilitychange` when the tab is hidden.
+  - New route `GET /api/cockpit` returns just the fragment (`text/html`) for the
+    poller — no `<html>`/`<body>` wrapper, so the swap is cheap. Same bearer + loopback
+    guards as every other route.
+  - The bearer token is delivered to the same-origin poller via an escaped
+    `data-token` attribute (never as an inline JS string, so a `</script>` in the
+    token cannot break out). The page is only served to loopback, bearer-authenticated
+    clients and the token is used solely for same-origin polling.
+  - Tests: 4 new cases in `cockpit-auth.test.ts` (26 total) — live page markers
+    (`#cockpit-root`, poller, 5s interval, `data-token`), token-not-in-JS-string guard,
+    `/api/cockpit` fragment shape (200, `text/html`, no `<html`, includes the task),
+    and `/api/cockpit` 401 without a token. End-to-end wire smoke (11 checks) passes.
+  - Validation: CLI `pnpm typecheck / test` clean (74 tests); `pnpm -r typecheck`
+    clean across 9 packages.
+  - This delivers the Alt.1 value proposition (live refresh) at near-zero cost and
+    with no new runtime dependency, while keeping the server strictly read-only. The
+    remaining gated items (DTO package, write/approval endpoints, contract editing)
+    are unchanged and still await usage evidence before Alt.1 is promoted to accepted.

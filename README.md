@@ -319,6 +319,12 @@ writer — the server can never mutate or lock the DB. The service opens the
 database **read-only**; all mutations stay on the CLI. Promotion of Alt.1 from
 `proposed` to `accepted` is gated on real usage evidence (see ADR-004).
 
+The `/` page is **live**: a zero-dependency client re-fetches the `/api/cockpit`
+fragment every 5 seconds (pausing when the tab is hidden) and re-renders, so the
+cockpit reflects DB changes without a manual refresh — this is the core reason
+the service exists over the static `dashboard.html`. JSON consumers can hit
+`/api/snapshot` directly.
+
 ## Project status
 
 v0.2 engineering baseline (kernel + contracts + runtime + governance). Gates G0 and G1 of the release plan are closed. Real CLI adapters (codex / claude-code) are wired into `paos run --adapter <id>` and are verified against real workspace evidence rather than demo fixtures.

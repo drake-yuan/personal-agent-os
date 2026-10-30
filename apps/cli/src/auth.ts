@@ -20,7 +20,8 @@ import { existsSync } from 'node:fs';
 import { openReadonly } from '@paos/db';
 import {
   buildCockpitSnapshot,
-  renderDashboardHtml,
+  renderCockpitInner,
+  renderLiveCockpitHtml,
   type CockpitSnapshot,
 } from './dashboard.js';
 import { loadInstallationSecret, tokenMatches } from './secret.js';
@@ -127,11 +128,20 @@ export function buildCockpitApp(deps: CockpitAppDeps): Hono {
     return c.json(snap);
   });
 
-  // Live, authenticated HTML cockpit - reuses the Alt.0 renderer on the fly.
+  // HTML fragment used by the live page's polling client. Same auth as every
+  // other route; returns only the visual body so the client can swap it cheaply.
+  app.get('/api/cockpit', (c) => {
+    const snap = serveSnapshot(c, deps.dataDir);
+    if (snap instanceof Response) return snap;
+    return c.html(renderCockpitInner(snap));
+  });
+
+  // Live, authenticated HTML cockpit - read-only body plus a zero-dependency
+  // polling client (see renderLiveCockpitHtml) that re-fetches /api/cockpit.
   app.get('/', (c) => {
     const snap = serveSnapshot(c, deps.dataDir);
     if (snap instanceof Response) return snap;
-    return c.html(renderDashboardHtml(snap));
+    return c.html(renderLiveCockpitHtml(snap, deps.secret));
   });
 
   return app;

@@ -280,23 +280,12 @@ td.empty { color: var(--muted); text-align: center; padding: 18px; }
 footer { color: var(--muted); font-size: 11px; margin-top: 8px; }
 `;
 
-/**
- * Render the snapshot into a self-contained HTML document. The JSON is inlined
- * for developer access (escaped so a `</script>` inside data cannot break out).
- */
-export function renderDashboardHtml(snap: CockpitSnapshot): string {
+/** Render the visual body (cards + sections + footer) for a snapshot. Shared by
+ * the static file, the live server page, and the auto-refresh fragment so all
+ * three can never diverge. */
+export function renderCockpitInner(snap: CockpitSnapshot): string {
   const s = snap.summary;
-  const dataJson = JSON.stringify(snap).replace(/</g, '\\u003c');
-
-  return `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PAOS Cockpit</title>
-<style>${STYLE}</style>
-</head>
-<body>
+  return `
 <h1>Personal Agent OS · Cockpit <span class="badge">read-only</span></h1>
 <div class="sub">generated ${esc(snap.generatedAt)} · sqlite ${esc(s.sqliteVersion)} · data-dir ${esc(snap.dataDir)}</div>
 
@@ -361,8 +350,84 @@ export function renderDashboardHtml(snap: CockpitSnapshot): string {
   </table>
 </section>
 
-<footer>PAOS v0.2 static cockpit — generated locally, no network, no server. Source of truth remains the SQLite DB.</footer>
+<footer>PAOS v0.2 cockpit - source of truth remains the SQLite DB. This view is read-only.</footer>`;
+}
+
+/**
+ * Render the snapshot into a self-contained HTML document (Alt.0 static file).
+ * The JSON is inlined for developer access (escaped so a `</script>` inside data
+ * cannot break out). Works fully without JavaScript.
+ */
+export function renderDashboardHtml(snap: CockpitSnapshot): string {
+  const dataJson = JSON.stringify(snap).replace(/</g, '\\u003c');
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PAOS Cockpit</title>
+<style>${STYLE}</style>
+</head>
+<body>${renderCockpitInner(snap)}
 <script id="snapshot" type="application/json">${dataJson}</script>
+</body>
+</html>`;
+}
+
+/**
+ * Render the live server page (Alt.1): the snapshot body inside a `#cockpit-root`
+ * container plus a zero-dependency polling client that re-fetches the fragment
+ * from `/api/cockpit` every 5s and swaps the root's innerHTML. This is what makes
+ * the cockpit "live" (the whole reason Alt.1 exists over the static board) while
+ * keeping the server read-only and adding no build step or front-end framework.
+ *
+ * The bearer token is delivered to the same-origin poller via a `data-token`
+ * attribute (escaped). The page is only served to loopback, bearer-authenticated
+ * clients, and the token is used solely for same-origin polling.
+ */
+export function renderLiveCockpitHtml(snap: CockpitSnapshot, token: string): string {
+  const tokenAttr = esc(token);
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PAOS Cockpit · live</title>
+<style>${STYLE}</style>
+</head>
+<body>
+<div id="cockpit-root">${renderCockpitInner(snap)}</div>
+<div class="sub" id="live-status" style="margin-top:8px">connecting…</div>
+<script id="cfg" data-token="${tokenAttr}"></script>
+<script>
+(function () {
+  var cfg = document.getElementById('cfg');
+  var token = cfg && cfg.dataset.token ? cfg.dataset.token : '';
+  var root = document.getElementById('cockpit-root');
+  var status = document.getElementById('live-status');
+  var timer = null;
+  function refresh() {
+    fetch('/api/cockpit', { headers: { authorization: 'Bearer ' + token }, cache: 'no-store' })
+      .then(function (r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.text();
+      })
+      .then(function (html) {
+        root.innerHTML = html;
+        if (status) status.textContent = 'live · updated ' + new Date().toLocaleTimeString();
+      })
+      .catch(function (e) {
+        if (status) status.textContent = 'poll error: ' + e.message + ' (retrying)';
+      });
+  }
+  function start() { refresh(); timer = setInterval(refresh, 5000); }
+  function stop() { if (timer) { clearInterval(timer); timer = null; } }
+  start();
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) stop(); else start();
+  });
+})();
+</script>
 </body>
 </html>`;
 }
