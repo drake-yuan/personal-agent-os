@@ -10,7 +10,6 @@
 import path from 'node:path';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import type { DatabaseSync } from 'node:sqlite';
-import { TASK_STATUS, RISK_LEVEL } from '@paos/contracts';
 import {
   openDatabase,
   sqliteVersion,
@@ -20,28 +19,7 @@ import {
   type DispatchIntentRow,
   type ApprovalRow,
 } from '@paos/db';
-
-export interface CockpitSummary {
-  sqliteVersion: string;
-  taskCount: number;
-  runCount: number;
-  pendingApprovalCount: number;
-  dispatchCount: number;
-  tasksByStatus: Record<string, number>;
-  tasksByRisk: Record<string, number>;
-  runsByStatus: Record<string, number>;
-  dispatchByState: Record<string, number>;
-}
-
-export interface CockpitSnapshot {
-  generatedAt: string;
-  dataDir: string;
-  summary: CockpitSummary;
-  tasks: TaskRow[];
-  workflowRuns: WorkflowRunRow[];
-  dispatchIntents: DispatchIntentRow[];
-  approvals: ApprovalRow[];
-}
+import { COCKPIT_DISTRIBUTION_ENUMS, type CockpitSnapshot } from '@paos/api';
 
 /**
  * Single read pass over the DB. Shared by `paos status --json` and the static
@@ -58,21 +36,22 @@ export function buildCockpitSnapshot(db: DatabaseSync, dataDir: string): Cockpit
     .all() as unknown as DispatchIntentRow[];
   const approvals = pendingApprovals(db);
 
+  // Seed every distribution map from the canonical enums (single source:
+  // COCKPIT_DISTRIBUTION_ENUMS in @paos/api) so the UI always shows the full
+  // set of buckets - even at zero - and the drift guard has a stable contract.
   const tasksByStatus: Record<string, number> = {};
-  for (const s of TASK_STATUS) tasksByStatus[s] = 0;
-  for (const t of tasks) tasksByStatus[t.status] = (tasksByStatus[t.status] ?? 0) + 1;
-
   const tasksByRisk: Record<string, number> = {};
-  for (const r of RISK_LEVEL) tasksByRisk[r] = 0;
-  for (const t of tasks) tasksByRisk[t.risk] = (tasksByRisk[t.risk] ?? 0) + 1;
-
   const runsByStatus: Record<string, number> = {};
-  for (const r of workflowRuns) runsByStatus[r.status] = (runsByStatus[r.status] ?? 0) + 1;
-
   const dispatchByState: Record<string, number> = {};
-  for (const d of dispatchIntents) {
-    dispatchByState[d.state] = (dispatchByState[d.state] ?? 0) + 1;
-  }
+  for (const s of COCKPIT_DISTRIBUTION_ENUMS.tasksByStatus) tasksByStatus[s] = 0;
+  for (const r of COCKPIT_DISTRIBUTION_ENUMS.tasksByRisk) tasksByRisk[r] = 0;
+  for (const s of COCKPIT_DISTRIBUTION_ENUMS.runsByStatus) runsByStatus[s] = 0;
+  for (const s of COCKPIT_DISTRIBUTION_ENUMS.dispatchByState) dispatchByState[s] = 0;
+
+  for (const t of tasks) tasksByStatus[t.status] = (tasksByStatus[t.status] ?? 0) + 1;
+  for (const t of tasks) tasksByRisk[t.risk] = (tasksByRisk[t.risk] ?? 0) + 1;
+  for (const r of workflowRuns) runsByStatus[r.status] = (runsByStatus[r.status] ?? 0) + 1;
+  for (const d of dispatchIntents) dispatchByState[d.state] = (dispatchByState[d.state] ?? 0) + 1;
 
   return {
     generatedAt: new Date().toISOString(),

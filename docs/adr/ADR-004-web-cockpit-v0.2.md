@@ -134,9 +134,11 @@ faster than ~1 Hz, or more than one front-end maintainer.
     skip the wire leg without failing.
   - Validation: CLI `pnpm typecheck / test` clean (70 tests); `pnpm -r typecheck` clean
     across 9 packages; full repo `pnpm -r test` green (298 tests).
-  - **What is deliberately NOT in P0:** no write endpoints, no browser-side approval, no
-    contract editing, no DTO package (`@paos/api`). Those are the gated follow-ups once
-    real usage justifies promoting Alt.1 from proposed -> accepted.
+  - **What is deliberately NOT in P0 (still gated):** no write endpoints, no browser-side
+    approval, no contract editing. The typed DTO boundary (`@paos/api`) and the drift-check
+    guard were added as defensive hardening (next entry) because the live service already
+    ships a JSON contract at `GET /api/snapshot`; promoting Alt.1 -> accepted still waits on
+    real usage evidence.
 
 - **2026-10-30 — Alt.1 live view layer added (still proposed).** The service now
   justifies itself with genuine live refresh, the original reason Alt.1 exists over
@@ -163,5 +165,31 @@ faster than ~1 Hz, or more than one front-end maintainer.
     clean across 9 packages.
   - This delivers the Alt.1 value proposition (live refresh) at near-zero cost and
     with no new runtime dependency, while keeping the server strictly read-only. The
-    remaining gated items (DTO package, write/approval endpoints, contract editing)
-    are unchanged and still await usage evidence before Alt.1 is promoted to accepted.
+    remaining gated items (write/approval endpoints, contract editing) still await usage
+    evidence before Alt.1 is promoted to accepted.
+
+- **2026-10-30 — Alt.1 DTO boundary + drift-check delivered (defensive, still proposed).**
+  The live service already served a JSON contract (`GET /api/snapshot`) whose shape lived
+  inline in `dashboard.ts` with no single source of truth and no runtime validation - exactly
+  the "hand-copied-drift" defect class the Test anchors warn about. This closes that gap:
+  - New package `@paos/api` is the single source of truth for the wire contract:
+    `CockpitSnapshot` / `CockpitSummary` (composing `@paos/db` row types + the aggregate
+    summary), plus `COCKPIT_DISTRIBUTION_ENUMS` - the mapping of each summary distribution
+    field to its canonical enum from `@paos/contracts`. The HTTP layer and the view now
+    import these types instead of reaching into the DB schema.
+  - `validateCockpitSnapshot` / `validateCockpitSummary` + `DriftError` are a runtime guard
+    run at the `/api/snapshot` serialization boundary: any structural drift fails closed
+    with `500 { error: 'snapshot_drift', issues }` rather than shipping a broken payload the
+    polling client would try to render.
+  - The builder (`buildCockpitSnapshot`) now seeds **all four** distribution maps from
+    `COCKPIT_DISTRIBUTION_ENUMS` (previously only `tasksByStatus` / `tasksByRisk` were
+    enum-seeded; `runsByStatus` / `dispatchByState` were row-only and silently drifted to
+    `{}` on an empty DB). This is the single-source-of-truth fix for both the UI (always
+    shows the full bucket set) and the drift guard.
+  - Drift guard covered by tests: `dashboard.test.ts` asserts each distribution map's keys
+    equal the canonical enum (catches a wrong field->enum mapping), that a built snapshot
+    passes `validateCockpitSnapshot`, and that an unknown bucket still renders without
+    crashing; `packages/api/test/validate.test.ts` (7) covers accept + every drift failure.
+  - Validation: `pnpm -r typecheck` clean across 10 packages; full repo `pnpm -r test` green
+    (312 tests); `pnpm audit --audit-level high` against npmjs clean. No new external
+    runtime dependency (api deps are workspace-internal).

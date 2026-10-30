@@ -22,8 +22,12 @@ import {
   buildCockpitSnapshot,
   renderCockpitInner,
   renderLiveCockpitHtml,
-  type CockpitSnapshot,
 } from './dashboard.js';
+import {
+  validateCockpitSnapshot,
+  DriftError,
+  type CockpitSnapshot,
+} from '@paos/api';
 import { loadInstallationSecret, tokenMatches } from './secret.js';
 
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
@@ -125,6 +129,17 @@ export function buildCockpitApp(deps: CockpitAppDeps): Hono {
   app.get('/api/snapshot', (c) => {
     const snap = serveSnapshot(c, deps.dataDir);
     if (snap instanceof Response) return snap;
+    // Drift guard at the wire boundary: fail closed (500) if the built snapshot
+    // no longer matches the declared DTO, rather than serving a broken payload
+    // that the polling client would try to render.
+    try {
+      validateCockpitSnapshot(snap);
+    } catch (err) {
+      if (err instanceof DriftError) {
+        return c.json({ error: 'snapshot_drift', issues: err.issues }, 500);
+      }
+      throw err;
+    }
     return c.json(snap);
   });
 

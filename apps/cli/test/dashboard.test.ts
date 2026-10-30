@@ -15,6 +15,7 @@ import {
   type TaskInsert,
 } from '@paos/db';
 import { buildCockpitSnapshot, renderDashboardHtml, cmdDashboard } from '../src/dashboard.js';
+import { validateCockpitSnapshot, COCKPIT_DISTRIBUTION_ENUMS } from '@paos/api';
 
 function seed(db: ReturnType<typeof openDatabase>): void {
   const now = new Date().toISOString();
@@ -181,5 +182,39 @@ describe('cmdDashboard', () => {
     const msg = cmdDashboard(dir, out);
     expect(msg).toContain('not initialized');
     expect(existsSync(out)).toBe(false);
+  });
+});
+
+describe('cockpit DTO drift guard', () => {
+  it('seeds each distribution map from the correct canonical enum', () => {
+    const db = openDatabase(':memory:');
+    migrate(db);
+    const snap = buildCockpitSnapshot(db, 'memory');
+    for (const field of Object.keys(COCKPIT_DISTRIBUTION_ENUMS) as (keyof typeof COCKPIT_DISTRIBUTION_ENUMS)[]) {
+      const keys = Object.keys(snap.summary[field]).sort();
+      const expected = [...COCKPIT_DISTRIBUTION_ENUMS[field]].sort();
+      expect(keys).toEqual(expected);
+    }
+    db.close();
+  });
+
+  it('a built snapshot passes the wire-boundary validator', () => {
+    const db = openDatabase(':memory:');
+    migrate(db);
+    seed(db);
+    const snap = buildCockpitSnapshot(db, 'memory');
+    expect(() => validateCockpitSnapshot(snap)).not.toThrow();
+    db.close();
+  });
+
+  it('renderDashboardHtml tolerates an unknown distribution key without crashing', () => {
+    const db = openDatabase(':memory:');
+    migrate(db);
+    const snap = buildCockpitSnapshot(db, 'memory');
+    // Simulate legacy/foreign data carrying a bucket not in the canonical enum.
+    snap.summary.tasksByStatus.ghost_status = 1;
+    const html = renderDashboardHtml(snap);
+    expect(html).toContain('ghost_status');
+    db.close();
   });
 });

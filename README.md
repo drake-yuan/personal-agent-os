@@ -325,6 +325,11 @@ cockpit reflects DB changes without a manual refresh — this is the core reason
 the service exists over the static `dashboard.html`. JSON consumers can hit
 `/api/snapshot` directly.
 
+The wire contract (`GET /api/snapshot`) is defined once in the `@paos/api`
+package and validated at the serialization boundary, so a schema drift fails
+closed (`500 snapshot_drift`) instead of shipping a broken payload. The HTTP and
+view layers import those types rather than reaching into the DB schema.
+
 ## Project status
 
 v0.2 engineering baseline (kernel + contracts + runtime + governance). Gates G0 and G1 of the release plan are closed. Real CLI adapters (codex / claude-code) are wired into `paos run --adapter <id>` and are verified against real workspace evidence rather than demo fixtures.
