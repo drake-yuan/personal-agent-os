@@ -289,6 +289,18 @@ export async function runDispatchPhase(input: DispatchPhaseInput): Promise<Dispa
   const runStatus = mapProviderStatus(adapter.provider as ProviderName, obs.providerStatus);
   updateDispatchIntent(db, intent.id, { state: 'reconciled', resolved_at: now(), updated_at: now() });
 
+  // Honest: an unmapped/unknown provider status must never silently fall
+  // through to verification. Park for human reconciliation instead (G2 hardening:
+  // qwen-code was once missing from the status MAP and would have been mis-read
+  // as a verified success).
+  if (runStatus === 'unknown_outcome') {
+    task = { ...task, waitingOn: 'dispatch_unknown_outcome' };
+    task = transition(task, 'blocked', now());
+    saveTask(db, task, now());
+    updateWorkflowRun(db, runId, { status: 'unknown_outcome', updated_at: now() });
+    return { task, dispatchId, dispatchState: 'reconciled', runStatus: 'unknown_outcome' };
+  }
+
   if (runStatus === 'failed') {
     task = { ...task, terminalReason: 'provider_failed' };
     task = transition(task, 'failed', now());

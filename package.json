@@ -18,6 +18,7 @@
     "typecheck": "pnpm -r typecheck",
     "evals:deterministic": "node packages/evaluation/dist/run-gates.js",
     "drift:check": "node packages/contracts/dist/drift-check.js",
+    "smoke:real": "node scripts/smoke-real.mjs",
     "sqlite:version": "node -e \"const{DatabaseSync}=require('node:sqlite');console.log(new DatabaseSync(':memory:').prepare('select sqlite_version() v').get().v)\""
   },
   "devDependencies": {

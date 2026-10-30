@@ -244,6 +244,39 @@ build -> test -> typecheck -> drift check -> deterministic evals -> SQLite versi
 
 The suite covers, among others: every legal and illegal state-machine edge, approval replay / supersede / expiry, five outbox fault injections, migration idempotency and audit triggers, snapshot escape scenarios, fail-closed schema validation, and CLI smoke runs against a real database.
 
+## Real dispatch verification
+
+Two layers prove a registered adapter is a *working implementation, not an empty
+shell* — and that the real spawn chain (objective on stdin, exit code -> status,
+timeout -> `unknown_outcome`) actually holds:
+
+- **CI-guarded e2e** (`apps/cli/test/e2e-adapters.test.ts`): drives the REAL
+  `CodexAdapter` / `ClaudeCodeAdapter` / `GeminiAdapter` / `QwenCodeAdapter`
+  instances through `runContract`, injecting a fake `execFn` so the full
+  spawn-shaped contract is exercised with no real binary or network. It asserts
+  each adapter reaches `done` only via the Verifier, records a real provider
+  task id (`codex-…`, `claude-code-…`, …), keeps the untrusted objective on
+  **stdin** (never argv), and maps a non-zero exit / timeout to `failed` /
+  `unknown_outcome`. This is the reproducible form of the G2 manual proof and
+  must stay green.
+- **Local real-dispatch smoke** (`scripts/smoke-real.mjs`, `pnpm smoke:real`):
+  opt-in only — it requires the real CLIs installed locally and is **skipped in
+  CI** (`PAOS_SMOKE_REAL` must be `1`). It runs `paos doctor --adapter <id>` for
+  each adapter, proving the genuine spawn chain can reach each host binary.
+
+### Adding a new adapter
+
+1. Subclass `BaseCliAdapter` in `packages/adapters` (binary, version/auth args,
+   `enforcedFor()`, `buildDispatchArgs()`); register the id + aliases in
+   `KNOWN_ADAPTERS` in `apps/cli/src/index.ts`.
+2. **Register the provider in the runtime status map** — add the provider name
+   to `ProviderName` and a `MAP` entry in `packages/runtime/src/status-map.ts`.
+   Forgetting this makes `mapProviderStatus` return `unknown_outcome` for every
+   observation, which (before the `unknown_outcome` short-circuit was added)
+   silently fell through to a verified success. The e2e suite catches this.
+3. Add an e2e case (the `adapterCases` table covers all four) and a `doctor`
+   smoke entry; run `pnpm smoke:real` on a host that has the binary.
+
 ## Project status
 
 v0.2 engineering baseline (kernel + contracts + runtime + governance). Gates G0 and G1 of the release plan are closed. Real CLI adapters (codex / claude-code) are wired into `paos run --adapter <id>` and are verified against real workspace evidence rather than demo fixtures.

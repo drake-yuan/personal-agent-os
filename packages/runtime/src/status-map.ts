@@ -18,7 +18,7 @@
  */
 import type { WorkflowRunStatus } from './types.js';
 
-export type ProviderName = 'codex' | 'claude-code' | 'gemini' | 'workbuddy' | 'demo';
+export type ProviderName = 'codex' | 'claude-code' | 'gemini' | 'qwen-code' | 'workbuddy' | 'demo';
 
 const MAP: Record<ProviderName, Record<string, WorkflowRunStatus>> = {
   codex: {
@@ -35,6 +35,13 @@ const MAP: Record<ProviderName, Record<string, WorkflowRunStatus>> = {
     running: 'running',
   },
   gemini: {
+    completed: 'running',
+    failed: 'failed',
+    cancelled: 'cancelled',
+    running: 'running',
+  },
+  // qwen-code is a codex-family fork; same observation semantics as gemini.
+  'qwen-code': {
     completed: 'running',
     failed: 'failed',
     cancelled: 'cancelled',
