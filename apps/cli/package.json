@@ -13,13 +13,15 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@hono/node-server": "^2.1.5",
+    "@paos/adapters": "workspace:*",
     "@paos/contracts": "workspace:*",
     "@paos/core": "workspace:*",
     "@paos/db": "workspace:*",
-    "@paos/runtime": "workspace:*",
-    "@paos/policy": "workspace:*",
-    "@paos/adapters": "workspace:*",
+    "@paos/evaluation": "workspace:*",
     "@paos/evidence": "workspace:*",
-    "@paos/evaluation": "workspace:*"
+    "@paos/policy": "workspace:*",
+    "@paos/runtime": "workspace:*",
+    "hono": "^4.13.14"
   }
 }

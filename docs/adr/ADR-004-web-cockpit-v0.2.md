@@ -99,3 +99,41 @@ faster than ~1 Hz, or more than one front-end maintainer.
 - The decision to promote Alt.0 -> Alt.1 (Hono + Vanilla TS service) remains
   **proposed** pending that evidence. No server, no auth surface, and no contract
   editing were added, per the non-goals.
+
+- **2026-10-30 — Alt.1 P0 auth baseline implemented (decision still proposed).** The
+  service baseline is now real, so the "is a service worth it?" question can be answered
+  with a running artifact rather than a hypothesis:
+  - `@paos/db` gained `openReadonly(path)` — enforces the same version gate as
+    `openDatabase`, opens with `{ readOnly: true }`, skips the WAL pragma (read-only
+    handles cannot set `journal_mode`), and still enables `foreign_keys`. A write on the
+    handle throws, so the server physically cannot corrupt the source of truth.
+  - `apps/cli/src/secret.ts` — `loadInstallationSecret(dataDir)` reads
+    `<dataDir>/installation.secret` (mode 0600, created by `paos init`), and
+    `tokenMatches` does a constant-time compare (length-mismatch short-circuits but still
+    runs a dummy fixed-time compare to avoid a trivial timing tell).
+  - `apps/cli/src/auth.ts` — `cockpitAuth` middleware enforces, in order: (1) body-size
+    ceiling via `content-length` (never buffers the body); (2) `Host` pinned to loopback
+    (DNS-rebinding defense — the service binds 127.0.0.1 but a coerced browser can send a
+    foreign `Host`); (3) cross-origin rejection — any non-loopback `Origin` is refused
+    (CSRF-style cross-site reads); (4) bearer-token auth against `installation.secret`.
+    `buildCockpitApp` serves `/api/snapshot` (JSON) and `/` (live HTML reusing the Alt.0
+    renderer) over a **read-only** DB; both return `409` when the DB is not initialised.
+  - `apps/cli/src/server.ts` — `startCockpit` binds 127.0.0.1 only, opens the DB
+    read-only, and resolves **after the socket is listening** (no bind race; the previous
+    implementation read `server.address()` before `listen` completed, which made the
+    ephemeral port 0 and `close()` throw "not running"). `paos cockpit [--port N]
+    [--host H]` starts it and stays alive until SIGINT/SIGTERM; it only ever reads.
+  - Deps: `hono` + `@hono/node-server` added to `@paos/cli`; `pnpm audit
+    --audit-level high` against `registry.npmjs.org` is clean (no known
+    vulnerabilities) — clears the CI gate that Option 4 mandated.
+  - Tests: `apps/cli/test/cockpit-auth.test.ts` (22 cases) — token accept/reject,
+    missing/foreign secret, read-only write rejection, every guard (403 foreign Host, 403
+    cross-origin Origin, 400 oversized body, 401 missing/wrong token, 200 authorised
+    read), the live HTML route, the 409-not-initialised path, and a real `listen` server
+    that binds 127.0.0.1 and serves over HTTP. Loopback-outbound-blocked environments
+    skip the wire leg without failing.
+  - Validation: CLI `pnpm typecheck / test` clean (70 tests); `pnpm -r typecheck` clean
+    across 9 packages; full repo `pnpm -r test` green (298 tests).
+  - **What is deliberately NOT in P0:** no write endpoints, no browser-side approval, no
+    contract editing, no DTO package (`@paos/api`). Those are the gated follow-ups once
+    real usage justifies promoting Alt.1 from proposed -> accepted.

@@ -299,6 +299,26 @@ Hono + Vanilla TS service (Alt.1) is warranted. The cockpit performs no writes
 and is deliberately scoped to visualization only (no contract editing, no
 approval buttons) per the ADR's non-goals.
 
+### Local read-only web service (Alt.1 P0 — auth baseline)
+
+When live refresh is wanted, `paos cockpit` starts a tiny **read-only** Hono
+service bound to `127.0.0.1`. It reuses the same snapshot, opens the DB
+read-only (writes are physically refused), and authenticates with the
+`installation.secret` that `paos init` created:
+
+```bash
+paos cockpit [--data-dir DIR] [--port N] [--host H]   # default host 127.0.0.1, port 7070
+# then GET http://127.0.0.1:7070/api/snapshot  (Authorization: Bearer <secret>)
+#      GET http://127.0.0.1:7070/              (live HTML cockpit, same auth)
+```
+
+Defense in depth: `Host` must be loopback (DNS-rebinding guard), cross-origin
+`Origin` headers are rejected (CSRF-style cross-site reads), bodies over 64 KiB
+are refused, and every request needs the bearer token. The CLI remains the only
+writer — the server can never mutate or lock the DB. The service opens the
+database **read-only**; all mutations stay on the CLI. Promotion of Alt.1 from
+`proposed` to `accepted` is gated on real usage evidence (see ADR-004).
+
 ## Project status
 
 v0.2 engineering baseline (kernel + contracts + runtime + governance). Gates G0 and G1 of the release plan are closed. Real CLI adapters (codex / claude-code) are wired into `paos run --adapter <id>` and are verified against real workspace evidence rather than demo fixtures.

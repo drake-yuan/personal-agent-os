@@ -30,6 +30,7 @@ import type { AgentAdapter, DemoFixture } from '@paos/adapters';
 import { runContract, resolveApproval } from '@paos/runtime';
 import type { ContractV11, CheckContext } from '@paos/runtime';
 import { buildCockpitSnapshot, renderDashboardHtml, cmdDashboard } from './dashboard.js';
+import { startCockpit } from './server.js';
 
 /**
  * Load a git-ignored `.env` (if present) into process.env. Only variables that
@@ -557,6 +558,29 @@ export function cmdApprovals(dataDir: string, json = false): string {
 }
 
 /**
+ * `paos cockpit [--port N] [--host H]` - start the read-only local web cockpit.
+ * Bound to 127.0.0.1 with bearer-token auth (see ADR-004 Alt.1 P0). The process
+ * stays alive until interrupted; it only ever reads the DB, never writes.
+ */
+export async function cmdCockpit(dataDir: string, opts: { port?: number; host?: string } = {}): Promise<string> {
+  const cockpit = await startCockpit({ dataDir, port: opts.port, host: opts.host });
+  const lines = [
+    `cockpit listening on ${cockpit.url}`,
+    '  auth: Bearer token from <dataDir>/installation.secret',
+    `  open: ${cockpit.url}/  (Bearer auth required)`,
+    '  press Ctrl-C to stop',
+  ];
+  await new Promise<void>((resolve) => {
+    const stop = (): void => {
+      cockpit.close().finally(resolve);
+    };
+    process.once('SIGINT', stop);
+    process.once('SIGTERM', stop);
+  });
+  return 'cockpit stopped';
+}
+
+/**
  * `paos approve <id> --contract <file> [--token T] [--deny] [--by NAME]`
  * The exit from the risk gate. Approving without an adapter records the
  * decision and returns the task to running; supplying the demo adapter
@@ -648,12 +672,20 @@ const COMMANDS: Record<string, (args: ParsedArgs) => Promise<string> | string> =
     a.flags['data-dir'] ? String(a.flags['data-dir']) : 'data',
     a.flags['out'] ? String(a.flags['out']) : undefined,
   ),
+  cockpit: (a) => cmdCockpit(
+    a.flags['data-dir'] ? String(a.flags['data-dir']) : 'data',
+    {
+      port: a.flags['port'] ? Number(a.flags['port']) : undefined,
+      host: a.flags['host'] ? String(a.flags['host']) : undefined,
+    },
+  ),
   help: () => [
     'paos - Personal Agent OS CLI (v0.2)',
     '',
     '  paos init [--data-dir=DIR]     first-run setup (secret + DB + migrations)',
     '  paos status [--data-dir=DIR] [--json]   task/run overview',
     '  paos dashboard [--out FILE]    render a self-contained HTML cockpit (no server)',
+    '  paos cockpit [--port N] [--host H]   start the read-only local web cockpit (loopback + token)',
     '  paos backup [--out DIR]        snapshot DB + secret (rollback point)',
     '  paos restore <dir> [--data-dir DIR]   restore a backup',
     '  paos migrate [--data-dir DIR]  apply pending schema migrations (checkpoint first)',

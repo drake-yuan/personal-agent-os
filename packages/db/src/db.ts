@@ -63,3 +63,22 @@ export function openDatabase(path = ':memory:'): DatabaseSync {
   db.exec('PRAGMA foreign_keys = ON;');
   return db;
 }
+
+/**
+ * Open a DB file read-only. Used by the cockpit service so the HTTP layer
+ * never holds the write lock and can never mutate state - the CLI remains the
+ * sole writer, and a bug in the server cannot corrupt the DB. The version gate
+ * still applies. WAL cannot be set on a read-only handle, so only
+ * `foreign_keys` (a read-only-safe pragma) is configured here.
+ */
+export function openReadonly(path: string): DatabaseSync {
+  const db = new DatabaseSyncCtor(path, { readOnly: true });
+  const version = sqliteVersion(db);
+  const required = minRequiredVersion();
+  if (compareVersions(version, required) < 0) {
+    db.close();
+    throw new SqliteVersionError(version, required);
+  }
+  db.exec('PRAGMA foreign_keys = ON;');
+  return db;
+}
