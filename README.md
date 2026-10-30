@@ -277,6 +277,28 @@ timeout -> `unknown_outcome`) actually holds:
 3. Add an e2e case (the `adapterCases` table covers all four) and a `doctor`
    smoke entry; run `pnpm smoke:real` on a host that has the binary.
 
+## Web cockpit (v0.2 - Alt.0 static dashboard)
+
+The cockpit is a **read-only** view of the SQLite state - no server, no network.
+Generate a self-contained HTML snapshot and open it from disk:
+
+```bash
+paos dashboard [--data-dir DIR] [--out FILE]   # default: <data-dir>/dashboard.html
+```
+
+It renders task status / risk distribution, workflow-run and dispatch-state
+breakdowns, the **human approval queue**, and full task / run / dispatch tables.
+The HTML is fully static (snapshot inlined, no `fetch`, no external resources), so
+it is safe to hand to anyone who can read the DB. `paos status [--json]` and
+`paos approvals [--json]` expose the same data as machine-readable JSON.
+
+This is the **Alt.0** step from
+[ADR-004](docs/adr/ADR-004-web-cockpit-v0.2.md): ~10% of the cost of a full
+server, ~80% of the value, and the evidence base that decides whether a
+Hono + Vanilla TS service (Alt.1) is warranted. The cockpit performs no writes
+and is deliberately scoped to visualization only (no contract editing, no
+approval buttons) per the ADR's non-goals.
+
 ## Project status
 
 v0.2 engineering baseline (kernel + contracts + runtime + governance). Gates G0 and G1 of the release plan are closed. Real CLI adapters (codex / claude-code) are wired into `paos run --adapter <id>` and are verified against real workspace evidence rather than demo fixtures.

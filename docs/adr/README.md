@@ -8,5 +8,9 @@ All ADRs start as `proposed`; they become `accepted` only when ratified in the p
 | [ADR-001](ADR-001-modular-monolith.md) | Modular monolith over microservices | proposed |
 | [ADR-002](ADR-002-ts-pnpm-workspace.md) | TypeScript + pnpm workspace | proposed |
 | [ADR-003](ADR-003-sqlite-single-source.md) | SQLite (WAL) as the only structured source of truth | proposed |
+| [ADR-004](ADR-004-web-cockpit-v0.2.md) | Web cockpit v0.2 as a local, read-mostly control surface | proposed |
 
 Template for new ADRs: [template.md](template.md).
+
+Supporting reviews: [reviews/](../reviews/) — e.g. the stack review behind ADR-004
+([2026-10-30-web-cockpit-stack-review.md](../reviews/2026-10-30-web-cockpit-stack-review.md)).

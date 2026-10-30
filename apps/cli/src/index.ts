@@ -29,6 +29,7 @@ import { DemoAdapter, doctor, AdapterRegistry, CodexAdapter, ClaudeCodeAdapter, 
 import type { AgentAdapter, DemoFixture } from '@paos/adapters';
 import { runContract, resolveApproval } from '@paos/runtime';
 import type { ContractV11, CheckContext } from '@paos/runtime';
+import { buildCockpitSnapshot, renderDashboardHtml, cmdDashboard } from './dashboard.js';
 
 /**
  * Load a git-ignored `.env` (if present) into process.env. Only variables that
@@ -122,19 +123,27 @@ export function cmdInit(dataDir: string): { secretPath: string; dbPath: string; 
   return { secretPath, dbPath, applied: result.applied };
 }
 
-/** `paos status` - overview from the DB (read-only). */
-export function cmdStatus(dataDir: string): string {
+/** `paos status [--json]` - overview from the DB (read-only). */
+export function cmdStatus(dataDir: string, json = false): string {
   const dbPath = path.join(dataDir, 'paos.db');
   if (!existsSync(dbPath)) return 'not initialized - run `paos init` first';
   const db = openDatabase(dbPath);
-  const counts = TASK_STATUS.map((s) => {
-    const row = db.prepare('SELECT COUNT(*) AS n FROM tasks WHERE status = ?').get(s) as { n: number };
-    return `${s}=${row.n}`;
-  }).join('  ');
-  const runs = db.prepare('SELECT COUNT(*) AS n FROM workflow_runs').get() as { n: number };
-  const version = sqliteVersion(db);
-  db.close();
-  return [`sqlite ${version}`, `tasks: ${counts}`, `workflow_runs=${runs.n}`].join('\n');
+  try {
+    const snap = buildCockpitSnapshot(db, dataDir);
+    if (json) return JSON.stringify(snap, null, 2);
+    const counts = TASK_STATUS
+      .map((s) => `${s}=${snap.summary.tasksByStatus[s] ?? 0}`)
+      .join('  ');
+    return [
+      `sqlite ${snap.summary.sqliteVersion}`,
+      `tasks: ${counts}`,
+      `workflow_runs=${snap.summary.runCount}`,
+      `pending_approvals=${snap.summary.pendingApprovalCount}`,
+      `dispatch_intents=${snap.summary.dispatchCount}`,
+    ].join('\n');
+  } finally {
+    db.close();
+  }
 }
 
 /** Timestamp token safe for file names across platforms (no `:`). */
@@ -530,13 +539,14 @@ export async function cmdRun(contractPath: string, dataDir: string, adapterId?: 
   }
 }
 
-/** `paos approvals` - list approvals waiting on a human decision. */
-export function cmdApprovals(dataDir: string): string {
+/** `paos approvals [--json]` - list approvals waiting on a human decision. */
+export function cmdApprovals(dataDir: string, json = false): string {
   const dbPath = path.join(dataDir, 'paos.db');
   if (!existsSync(dbPath)) return 'not initialized - run `paos init` first';
   const db = openDatabase(dbPath);
   try {
     const rows = pendingApprovals(db);
+    if (json) return JSON.stringify(rows, null, 2);
     if (rows.length === 0) return 'no pending approvals';
     return rows
       .map((r) => `${r.id}  ${r.risk}  run=${r.workflow_run_id}  step=${r.step_id}  ${r.action}`)
@@ -614,7 +624,7 @@ const COMMANDS: Record<string, (args: ParsedArgs) => Promise<string> | string> =
   ),
   'plugin inspect': (a) => cmdPluginInspect(a.positional[0] ?? ''),
   init: (a) => JSON.stringify(cmdInit(a.flags['data-dir'] ? String(a.flags['data-dir']) : 'data')),
-  status: (a) => cmdStatus(a.flags['data-dir'] ? String(a.flags['data-dir']) : 'data'),
+  status: (a) => cmdStatus(a.flags['data-dir'] ? String(a.flags['data-dir']) : 'data', Boolean(a.flags['json'])),
   backup: (a) => cmdBackup(
     a.flags['data-dir'] ? String(a.flags['data-dir']) : 'data',
     a.flags['out'] ? String(a.flags['out']) : undefined,
@@ -633,12 +643,17 @@ const COMMANDS: Record<string, (args: ParsedArgs) => Promise<string> | string> =
   inspect: (a) => cmdPluginInspect(a.positional[0] ?? ''),
   evals: (a) => cmdEvals(a),
   approve: (a) => cmdApprove(a),
-  approvals: (a) => cmdApprovals(a.flags['data-dir'] ? String(a.flags['data-dir']) : 'data'),
+  approvals: (a) => cmdApprovals(a.flags['data-dir'] ? String(a.flags['data-dir']) : 'data', Boolean(a.flags['json'])),
+  dashboard: (a) => cmdDashboard(
+    a.flags['data-dir'] ? String(a.flags['data-dir']) : 'data',
+    a.flags['out'] ? String(a.flags['out']) : undefined,
+  ),
   help: () => [
     'paos - Personal Agent OS CLI (v0.2)',
     '',
     '  paos init [--data-dir=DIR]     first-run setup (secret + DB + migrations)',
-    '  paos status [--data-dir=DIR]   task/run overview',
+    '  paos status [--data-dir=DIR] [--json]   task/run overview',
+    '  paos dashboard [--out FILE]    render a self-contained HTML cockpit (no server)',
     '  paos backup [--out DIR]        snapshot DB + secret (rollback point)',
     '  paos restore <dir> [--data-dir DIR]   restore a backup',
     '  paos migrate [--data-dir DIR]  apply pending schema migrations (checkpoint first)',
@@ -646,7 +661,7 @@ const COMMANDS: Record<string, (args: ParsedArgs) => Promise<string> | string> =
     '                                 cross-machine paths: <data-dir>/path-aliases.json',
     '                                 or $PAOS_PATH_ALIASES (JSON array or file path)',
     `                                 ID: ${describeKnownAdapters()} (default: demo-adapter)`,
-    '  paos approvals                 list approvals waiting on a human',
+    '  paos approvals [--json]        list approvals waiting on a human',
     '  paos approve <id> --contract F [--token T] [--deny] [--by NAME]',
     '                                 record a decision and resume an approved run',
     '  paos adapter doctor [id] [--auth]',
