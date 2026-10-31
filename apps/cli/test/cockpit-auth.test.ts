@@ -16,6 +16,7 @@ import { loadInstallationSecret, tokenMatches } from '../src/secret.js';
 import {
   buildCockpitApp,
   cockpitAuth,
+  createFixedWindowRateLimiter,
   hostIsLoopback,
   originIsLoopback,
 } from '../src/auth.js';
@@ -51,7 +52,8 @@ function makeDataDir(): string {
 function mockCtx(headers: Record<string, string | undefined>): Context {
   const c = {
     req: { header: (k: string) => headers[k.toLowerCase()] },
-    json: (body: unknown, status: number) => new Response(JSON.stringify(body), { status }),
+    json: (body: unknown, status = 200, init: { headers?: Record<string, string> } = {}) =>
+      new Response(JSON.stringify(body), { status, headers: new Headers(init.headers ?? {}) }),
   } as unknown as Context;
   return c;
 }
@@ -309,5 +311,51 @@ describe('startCockpit real server', () => {
     const { startCockpit } = await import('../src/server.js');
     await expect(startCockpit({ dataDir: dir, port: 0 })).rejects.toThrow(/installation\.secret/);
     rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+describe('createFixedWindowRateLimiter', () => {
+  it('allows up to max, then rejects, then resets after the window', () => {
+    let t = 1000;
+    const lim = createFixedWindowRateLimiter({ windowMs: 1000, max: 2, now: () => t });
+    expect(lim.allow()).toBe(true);
+    expect(lim.allow()).toBe(true);
+    expect(lim.allow()).toBe(false);
+    t += 1001; // advance past the window
+    expect(lim.allow()).toBe(true);
+  });
+
+  it('retryAfterSeconds is positive once the budget is spent', () => {
+    let t = 1000;
+    const lim = createFixedWindowRateLimiter({ windowMs: 1000, max: 1, now: () => t });
+    expect(lim.allow()).toBe(true);
+    expect(lim.allow()).toBe(false);
+    expect(lim.retryAfterSeconds()).toBeGreaterThan(0);
+  });
+});
+
+describe('cockpitAuth rate-limit (P0-3)', () => {
+  it('returns 429 with Retry-After once the budget is spent', async () => {
+    const mw = cockpitAuth({ secret: SECRET, rateLimit: { windowMs: 1000, max: 2 } });
+    const headers = { host: '127.0.0.1', authorization: `Bearer ${SECRET}` };
+    const r1 = await mw(mockCtx(headers), async () => {});
+    const r2 = await mw(mockCtx(headers), async () => {});
+    const r3 = await mw(mockCtx(headers), async () => {});
+    expect(r1).toBeUndefined(); // budget not spent -> next() ran
+    expect(r2).toBeUndefined();
+    expect(r3).toBeInstanceOf(Response);
+    const resp = r3 as Response;
+    expect(resp.status).toBe(429);
+    expect(resp.headers.get('Retry-After')).toBeTruthy();
+  });
+
+  it('disabled skips every guard (demo pass-through)', async () => {
+    const mw = cockpitAuth({ secret: SECRET, disabled: true });
+    let nextCalled = false;
+    const res = await mw(mockCtx({}), async () => {
+      nextCalled = true;
+    });
+    expect(res).toBeUndefined();
+    expect(nextCalled).toBe(true);
   });
 });

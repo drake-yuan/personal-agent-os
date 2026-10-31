@@ -244,3 +244,38 @@ faster than ~1 Hz, or more than one front-end maintainer.
   - Verified fail-closed: flipping the expected mapping in the script made `drift:check` exit
     1 with a precise `api.<field>` diff; restoring it returns `drift check OK` (message now
     names the DTO coverage). Full `pnpm -r typecheck` clean across 10 packages.
+
+- **2026-10-31 — P0-3 completed: rate-limit added to the cockpit auth baseline (still
+  proposed).** The P0 auth list (loopback bind, Host pin, cross-origin reject, body cap,
+  `installation.secret` reuse, rate-limit) was missing only the last item. `apps/cli/src/auth.ts`
+  now runs a global fixed-window limiter (`createFixedWindowRateLimiter`, default 300 req / 60 s)
+  as guard **0**, before every other check, so a flood is throttled before any spend - it also
+  caps the bearer-token brute-force path. The limiter is global (not keyed by token) on purpose:
+  keying by token would let an attacker vary the token to bypass it, and the service is
+  single-user loopback. A spent budget returns `429` with a `Retry-After` header. An injectable
+  clock keeps the limiter unit-testable; tests cover allow/reset and the 429+Retry-After path
+  through the middleware. Note: rate-limit is defense-in-depth only - the real credential is
+  still the bearer token; do not treat it as the primary control.
+
+- **2026-10-31 — P1-6 implemented: `paos cockpit --demo` synthetic preview (still proposed).**
+  The review wanted "14-state coverage visible during development"; `demo/fixtures/demo-run.json`
+  is a provider-task fixture (not task-machine data), so it could not serve as the seed. Instead
+  a dedicated seeder (`apps/cli/src/demo-seed.ts`, `seedDemoCockpit`) inserts one task per
+  canonical state (all 14), 10 workflow runs across the run-status enum, 6 dispatch intents, and
+  3 pending approvals (including an R4 that requires a contract, per the OD3-traced gate).
+  `cmdCockpit` gains `--demo`: it builds a throwaway DB in a temp dir, seeds it, and serves it
+  **authless** (synthetic data, still loopback + read-only) so the board is viewable with zero
+  friction; the real `dataDir` is never touched and SIGINT/SIGTERM clean the temp dir. This
+  unblocks the Alt.1 -> accepted gate (usage evidence) without a live, initialised kernel DB.
+  Trade-off recorded: the demo shell drops the bearer check, so `--demo` must never point at real
+  data and is explicitly local-only. Validation: new `apps/cli/test/demo-seed.test.ts` asserts the
+  14-state spread, non-empty queue (with an R4), and `validateCockpitSnapshot` passes; an
+  end-to-end wire smoke confirmed `/` (no auth), `/api/snapshot` (taskCount 14) and
+  `/api/cockpit` (200 fragment). Full `pnpm -r test` green (317); `pnpm drift:check` green.
+
+- **2026-10-31 — known UX gap (not yet fixed, out of this priority pass):** `paos cockpit`
+  (non-demo) serves `/` behind the bearer gate, but a browser top-level navigation cannot set an
+  `Authorization` header, so loading the real cockpit today needs a header injection (extension /
+  curl). The loopback + Host-pin + cross-origin-reject model already blocks cross-site *reads*,
+  so the gap is a usability one, not a confidentiality one. A cookie-based session bootstrap is
+  the likely fix; left as a follow-up rather than scope-creeping the priority list.

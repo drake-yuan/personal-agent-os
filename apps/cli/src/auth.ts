@@ -2,6 +2,8 @@
  * Cockpit HTTP auth baseline (Alt.1 P0).
  *
  * A Hono middleware that enforces, in order:
+ *   0. Rate-limit - fixed-window cap (P0-3, defense-in-depth against token
+ *      brute force); returns 429 with Retry-After once the budget is spent.
  *   1. Body-size ceiling - reject over-sized requests before reading the body.
  *   2. Host pinned to loopback - DNS-rebinding defense (the service binds
  *      127.0.0.1 only, but a browser can be tricked into sending a foreign
@@ -12,6 +14,7 @@
  *
  * The service is read-only and bound to loopback; these checks are defense in
  * depth so a misconfiguration cannot expose the data without the token.
+ * `disabled` (demo mode) skips all guards for synthetic, throwaway preview data.
  */
 import { Hono } from 'hono';
 import type { Context, MiddlewareHandler } from 'hono';
@@ -32,11 +35,69 @@ import { loadInstallationSecret, tokenMatches } from './secret.js';
 
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
 const DEFAULT_MAX_BODY = 64 * 1024;
+// P0-3 (rate-limit): defense-in-depth against bearer-token brute force on the
+// loopback surface. The limiter is global (single-user local service) rather
+// than keyed by token - keying by token would let an attacker vary the token to
+// bypass it. The poller hits ~12 req/min; this window is deliberately generous
+// so legitimate bursts never trip it, while a flood is capped.
+const DEFAULT_RATE_WINDOW_MS = 60_000;
+const DEFAULT_RATE_MAX = 300;
+
+export interface FixedWindowOptions {
+  windowMs: number;
+  max: number;
+  /** Injectable clock for deterministic tests; defaults to Date.now(). */
+  now?: () => number;
+}
+
+export interface RateLimiter {
+  /** Returns true if the request is allowed, false once the budget is spent. */
+  allow(): boolean;
+  /** Seconds until the current window resets (for the Retry-After header). */
+  retryAfterSeconds(): number;
+}
+
+/**
+ * A fixed-window counter. Not a token bucket - simplicity over smoothness; the
+ * window is long (60s) and the cap generous, so the sawtooth at window edges is
+ * irrelevant here. The only contract that matters: `allow()` returns false once
+ * `max` requests land inside one window.
+ */
+export function createFixedWindowRateLimiter(opts: FixedWindowOptions): RateLimiter {
+  const now = opts.now ?? Date.now;
+  let windowStart = now();
+  let count = 0;
+  return {
+    allow() {
+      const t = now();
+      if (t - windowStart >= opts.windowMs) {
+        windowStart = t;
+        count = 0;
+      }
+      if (count >= opts.max) return false;
+      count += 1;
+      return true;
+    },
+    retryAfterSeconds() {
+      const remaining = Math.ceil((windowStart + opts.windowMs - now()) / 1000);
+      return remaining > 0 ? remaining : 1;
+    },
+  };
+}
 
 export interface CockpitAuthConfig {
   secret: string;
   /** Max request body in bytes; requests above this are rejected with 400. */
   maxBodyBytes?: number;
+  /** Rate-limit budget; defaults to a generous 300 requests / 60s window. */
+  rateLimit?: { windowMs: number; max: number };
+  /**
+   * Demo-only pass-through. When true, every guard is skipped. NEVER set this
+   * for a real `dataDir` - the cockpit then serves without authentication. The
+   * demo data is synthetic and the service stays loopback + read-only, so the
+   * only thing skipped is the bearer check on throwaway preview data.
+   */
+  disabled?: boolean;
 }
 
 function normalizeHostHeader(raw: string | undefined): string | null {
@@ -73,8 +134,23 @@ function originIsLoopback(origin: string | undefined): boolean {
 export { hostIsLoopback, originIsLoopback };
 
 export function cockpitAuth(config: CockpitAuthConfig): MiddlewareHandler {
+  // Demo pass-through: skip all guards. Deliberately gated to synthetic data.
+  if (config.disabled) return async (_c: Context, next: () => Promise<void>) => next();
+
   const maxBody = config.maxBodyBytes ?? DEFAULT_MAX_BODY;
+  const limiter = createFixedWindowRateLimiter(
+    config.rateLimit ?? { windowMs: DEFAULT_RATE_WINDOW_MS, max: DEFAULT_RATE_MAX },
+  );
   return async (c: Context, next: () => Promise<void>) => {
+    // 0. Rate-limit (first, so a flood is throttled before any other check -
+    //    it also covers the brute-force path against the bearer token).
+    if (!limiter.allow()) {
+      return c.json(
+        { error: 'rate_limited' },
+        429,
+        { headers: { 'Retry-After': String(limiter.retryAfterSeconds()) } },
+      );
+    }
     // 1. Body-size ceiling (header-only check; the body is never buffered).
     const contentLength = Number(c.req.header('content-length') ?? '0');
     if (Number.isFinite(contentLength) && contentLength > maxBody) {
@@ -119,12 +195,21 @@ export interface CockpitAppDeps {
   dataDir: string;
   secret: string;
   maxBodyBytes?: number;
+  /** Demo-only: skip authentication (synthetic data, loopback + read-only). */
+  authless?: boolean;
 }
 
 /** Build the Hono app for the cockpit service (authenticated, read-only). */
 export function buildCockpitApp(deps: CockpitAppDeps): Hono {
   const app = new Hono();
-  app.use('*', cockpitAuth({ secret: deps.secret, maxBodyBytes: deps.maxBodyBytes }));
+  app.use(
+    '*',
+    cockpitAuth({
+      secret: deps.secret,
+      maxBodyBytes: deps.maxBodyBytes,
+      disabled: deps.authless,
+    }),
+  );
 
   app.get('/api/snapshot', (c) => {
     const snap = serveSnapshot(c, deps.dataDir);

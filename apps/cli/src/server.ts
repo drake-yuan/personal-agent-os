@@ -16,6 +16,14 @@ export interface CockpitServerOptions {
   host?: string;
   /** 0 (default) yields an ephemeral port assigned by the OS. */
   port?: number;
+  /**
+   * Override the bearer secret. When omitted, the secret is loaded from
+   * `<dataDir>/installation.secret` (the normal path). Demo mode injects a
+   * throwaway secret here.
+   */
+  secret?: string;
+  /** Demo-only: skip authentication (synthetic data, loopback + read-only). */
+  authless?: boolean;
 }
 
 export interface CockpitServer {
@@ -37,8 +45,8 @@ export interface CockpitServer {
 export async function startCockpit(opts: CockpitServerOptions): Promise<CockpitServer> {
   const host = opts.host ?? '127.0.0.1';
   const requestedPort = opts.port ?? 7070;
-  const secret = loadInstallationSecret(opts.dataDir);
-  const app = buildCockpitApp({ dataDir: opts.dataDir, secret });
+  const secret = opts.secret ?? loadInstallationSecret(opts.dataDir);
+  const app = buildCockpitApp({ dataDir: opts.dataDir, secret, authless: opts.authless });
   const server = serve({
     fetch: (req: Request) => app.fetch(req),
     port: requestedPort,

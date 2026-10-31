@@ -16,9 +16,10 @@
 import { randomBytes, createHash } from 'node:crypto';
 import {
   mkdirSync, writeFileSync, existsSync, readFileSync, realpathSync,
-  copyFileSync, readdirSync, statSync,
+  copyFileSync, readdirSync, statSync, mkdtempSync, rmSync,
 } from 'node:fs';
 import path from 'node:path';
+import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import {
   TASK_STATUS, RISK_LEVEL, loadSchemaById, validate,
@@ -31,6 +32,7 @@ import { runContract, resolveApproval } from '@paos/runtime';
 import type { ContractV11, CheckContext } from '@paos/runtime';
 import { buildCockpitSnapshot, renderDashboardHtml, cmdDashboard } from './dashboard.js';
 import { startCockpit } from './server.js';
+import { seedDemoCockpit } from './demo-seed.js';
 
 /**
  * Load a git-ignored `.env` (if present) into process.env. Only variables that
@@ -558,21 +560,57 @@ export function cmdApprovals(dataDir: string, json = false): string {
 }
 
 /**
- * `paos cockpit [--port N] [--host H]` - start the read-only local web cockpit.
- * Bound to 127.0.0.1 with bearer-token auth (see ADR-004 Alt.1 P0). The process
- * stays alive until interrupted; it only ever reads the DB, never writes.
+ * `paos cockpit [--port N] [--host H] [--demo]` - start the read-only local web
+ * cockpit. Bound to 127.0.0.1 with bearer-token auth (see ADR-004 Alt.1 P0). The
+ * process stays alive until interrupted; it only ever reads the DB, never writes.
+ *
+ * `--demo` is a synthetic-preview convenience (P1-6): it builds a throwaway DB
+ * in a temp dir, seeds it with a representative 14-state spread, and serves it
+ * WITHOUT authentication. The real `dataDir` is never touched, and the service
+ * remains loopback + read-only. Use it to evaluate the UI; never point it at real
+ * data, and do not enable it for any non-local use.
  */
-export async function cmdCockpit(dataDir: string, opts: { port?: number; host?: string } = {}): Promise<string> {
-  const cockpit = await startCockpit({ dataDir, port: opts.port, host: opts.host });
-  const lines = [
-    `cockpit listening on ${cockpit.url}`,
-    '  auth: Bearer token from <dataDir>/installation.secret',
-    `  open: ${cockpit.url}/  (Bearer auth required)`,
-    '  press Ctrl-C to stop',
-  ];
+export async function cmdCockpit(
+  dataDir: string,
+  opts: { port?: number; host?: string; demo?: boolean } = {},
+): Promise<string> {
+  let cockpit;
+  let cleanup: (() => void) | undefined;
+  if (opts.demo) {
+    const tmp = mkdtempSync(path.join(tmpdir(), 'paos-cockpit-demo-'));
+    const dbPath = path.join(tmp, 'paos.db');
+    const db = openDatabase(dbPath);
+    try {
+      migrate(db);
+      seedDemoCockpit(db);
+    } finally {
+      db.close();
+    }
+    const secret = randomBytes(32).toString('hex');
+    cleanup = () => rmSync(tmp, { recursive: true, force: true });
+    cockpit = await startCockpit({ dataDir: tmp, port: opts.port, host: opts.host, secret, authless: true });
+  } else {
+    cockpit = await startCockpit({ dataDir, port: opts.port, host: opts.host });
+  }
+  const lines = opts.demo
+    ? [
+        `cockpit (DEMO, synthetic data) listening on ${cockpit.url}`,
+        `  open: ${cockpit.url}/  (no auth - demo preview only)`,
+        '  press Ctrl-C to stop',
+      ]
+    : [
+        `cockpit listening on ${cockpit.url}`,
+        '  auth: Bearer token from <dataDir>/installation.secret',
+        `  open: ${cockpit.url}/  (Bearer auth required)`,
+        '  press Ctrl-C to stop',
+      ];
   await new Promise<void>((resolve) => {
     const stop = (): void => {
-      cockpit.close().finally(resolve);
+      const done = (): void => {
+        cleanup?.();
+        resolve();
+      };
+      cockpit.close().then(done, done);
     };
     process.once('SIGINT', stop);
     process.once('SIGTERM', stop);
@@ -677,6 +715,7 @@ const COMMANDS: Record<string, (args: ParsedArgs) => Promise<string> | string> =
     {
       port: a.flags['port'] ? Number(a.flags['port']) : undefined,
       host: a.flags['host'] ? String(a.flags['host']) : undefined,
+      demo: Boolean(a.flags['demo']),
     },
   ),
   help: () => [
@@ -685,7 +724,7 @@ const COMMANDS: Record<string, (args: ParsedArgs) => Promise<string> | string> =
     '  paos init [--data-dir=DIR]     first-run setup (secret + DB + migrations)',
     '  paos status [--data-dir=DIR] [--json]   task/run overview',
     '  paos dashboard [--out FILE]    render a self-contained HTML cockpit (no server)',
-    '  paos cockpit [--port N] [--host H]   start the read-only local web cockpit (loopback + token)',
+    '  paos cockpit [--port N] [--host H] [--demo]   start the read-only local web cockpit (loopback + token; --demo = synthetic preview)',
     '  paos backup [--out DIR]        snapshot DB + secret (rollback point)',
     '  paos restore <dir> [--data-dir DIR]   restore a backup',
     '  paos migrate [--data-dir DIR]  apply pending schema migrations (checkpoint first)',
