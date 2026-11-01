@@ -9,6 +9,7 @@ All ADRs start as `proposed`; they become `accepted` only when ratified in the p
 | [ADR-002](ADR-002-ts-pnpm-workspace.md) | TypeScript + pnpm workspace | proposed |
 | [ADR-003](ADR-003-sqlite-single-source.md) | SQLite (WAL) as the only structured source of truth | proposed |
 | [ADR-004](ADR-004-web-cockpit-v0.2.md) | Web cockpit v0.2 as a local, read-mostly control surface | proposed |
+| [ADR-005](ADR-005-freeze-contract-per-run.md) | Persist a frozen contract per run to enable browser approval | proposed |
 
 Template for new ADRs: [template.md](template.md).
 

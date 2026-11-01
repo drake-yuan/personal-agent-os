@@ -24,6 +24,8 @@ export interface CockpitServerOptions {
   secret?: string;
   /** Demo-only: skip authentication (synthetic data, loopback + read-only). */
   authless?: boolean;
+  /** Override the CLI entry spawned for mutations (tests inject a fake binary). */
+  cliEntry?: string;
 }
 
 export interface CockpitServer {
@@ -46,7 +48,12 @@ export async function startCockpit(opts: CockpitServerOptions): Promise<CockpitS
   const host = opts.host ?? '127.0.0.1';
   const requestedPort = opts.port ?? 7070;
   const secret = opts.secret ?? loadInstallationSecret(opts.dataDir);
-  const app = buildCockpitApp({ dataDir: opts.dataDir, secret, authless: opts.authless });
+  const app = buildCockpitApp({
+    dataDir: opts.dataDir,
+    secret,
+    authless: opts.authless,
+    cliEntry: opts.cliEntry,
+  });
   const server = serve({
     fetch: (req: Request) => app.fetch(req),
     port: requestedPort,

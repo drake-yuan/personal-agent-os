@@ -52,8 +52,8 @@ function makeDataDir(): string {
 function mockCtx(headers: Record<string, string | undefined>): Context {
   const c = {
     req: { header: (k: string) => headers[k.toLowerCase()] },
-    json: (body: unknown, status = 200, init: { headers?: Record<string, string> } = {}) =>
-      new Response(JSON.stringify(body), { status, headers: new Headers(init.headers ?? {}) }),
+    json: (body: unknown, status = 200, headers: Record<string, string> = {}) =>
+      new Response(JSON.stringify(body), { status, headers: new Headers(headers) }),
   } as unknown as Context;
   return c;
 }
@@ -357,5 +357,22 @@ describe('cockpitAuth rate-limit (P0-3)', () => {
     });
     expect(res).toBeUndefined();
     expect(nextCalled).toBe(true);
+  });
+
+  it('Retry-After is serialized through the real Hono app (guard 0)', async () => {
+    // Rate-limit is guard 0, so a 429 is returned before the DB is touched -
+    // any dataDir works. This exercises the real Response serialization path
+    // (the mock-based test above cannot prove the header actually serializes).
+    const app = buildCockpitApp({
+      dataDir: 'C:\\nonexistent-paos-xyz',
+      secret: SECRET,
+      rateLimit: { windowMs: 1000, max: 1 },
+    });
+    const hdrs = { host: '127.0.0.1', authorization: `Bearer ${SECRET}` };
+    const ok = await app.request('http://127.0.0.1/api/snapshot', { headers: hdrs });
+    expect([200, 409]).toContain(ok.status); // not 429 within budget
+    const limited = await app.request('http://127.0.0.1/api/snapshot', { headers: hdrs });
+    expect(limited.status).toBe(429);
+    expect(limited.headers.get('Retry-After')).toMatch(/^\d+$/);
   });
 });

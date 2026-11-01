@@ -279,3 +279,44 @@ faster than ~1 Hz, or more than one front-end maintainer.
   curl). The loopback + Host-pin + cross-origin-reject model already blocks cross-site *reads*,
   so the gap is a usability one, not a confidentiality one. A cookie-based session bootstrap is
   the likely fix; left as a follow-up rather than scope-creeping the priority list.
+
+- **2026-11-01 — P1-2 mutation surface: safe `deny` slice shipped (still proposed).** The
+  cockpit now has a real write path, but only the least-privileged action, per the OD3-traced
+  gate (deny needs no contract; `approvals.ts:143-159`). `apps/cli/src/actions.ts` (new)
+  provides `spawnCli` (async child-process spawn via `process.execPath`, non-blocking so the
+  HTTP event loop stays free — the OD2 guarantee) and `denyApproval` (argv-guarded: approval id
+  matched against `^[A-Za-z0-9._:-]{1,80}$`, DB presence checked before spawn). `auth.ts`
+  mounts `POST /api/actions/deny` (bearer + loopback + Host-pin + rate-limit, like every route)
+  which spawns `paos approve <id> --deny --by cockpit` and returns the CLI result, and
+  `POST /api/actions/approve`, which intentionally returns **403** with a structured `cliCommand`
+  (the decision is gated behind ADR-005, not implemented by default). Tests: `actions.test.ts`
+  (spawn argv forwarding, exit-code propagation, id/target guards) and `cockpit-actions.test.ts`
+  (401/400/200 for deny, 403 for approve, plus the **OD2 dispatch-isolation** anchor — a real
+  server answers `GET /api/snapshot` while the deny child sleeps 2.5 s). This closes the only
+  remaining named Test anchor (OD2) without adding a write lock or an in-process dispatch.
+  Approve-from-browser is tracked separately as ADR-005.
+
+- **2026-11-01 — ADR-005 opened (Option A, unblocks browser approve).** `docs/adr/ADR-005-freeze-contract-per-run.md`
+  (proposed) decides: persist a frozen contract per run in a new `run_contracts` table (migration
+  `0002_run_contracts.sql`, auto-discovered by the versioned runner); keep `input_ref` as the same
+  `contract:<sha256>` digest, now resolvable; add `paos approve --contract-hash <hash>` which
+  re-validates the frozen copy against the current `@paos/contracts` schema before proceeding; old
+  runs without a row fall back to `--contract <file>` (no backfill). Once accepted, the cockpit's
+  `/api/actions/approve` 403 becomes a child-process spawn — server stays read-only. This is the
+  P1-3 decision the review said must be settled in writing before implementation.
+
+- **2026-11-01 — P1-2 deny slice verified end-to-end; two wiring bugs fixed.** The deny route and
+  OD2 isolation test surfaced two real defects that unit tests alone would have missed, both fixed:
+  (1) `buildCockpitApp` called `cockpitAuth` without forwarding `rateLimit`, so the configured budget
+  was silently ignored and the default (300/60s) applied — the limiter field is now wired through
+  `CockpitAppDeps` and the middleware. (2) The spawned CLI defaulted its data dir to a relative
+  `data`, so a browser-driven `deny` would have approved against the *wrong* database; `denyApproval`
+  now passes `--data-dir <server dataDir>` to the child and the route asserts the echoed argv contains
+  it. End-to-end smoke on a `--demo` DB: `POST /api/actions/deny` spawned
+  `paos approve DEMO-A-01 --deny --by cockpit --data-dir <tmpdir>`, which returned
+  `approval DEMO-A-01: denied / task DEMO-T-06: blocked / run: paused` and dropped the pending queue
+  3 -> 2 (the snapshot lists only pending approvals). The server never held the write lock and stayed
+  read-only throughout. Validation: new `actions.test.ts` + `cockpit-actions.test.ts` (94 CLI tests
+  pass); full repo `pnpm -r test` green (329); `pnpm -r typecheck` clean across 10 packages;
+  `pnpm drift:check` green.
+

@@ -32,6 +32,7 @@ import {
   type CockpitSnapshot,
 } from '@paos/api';
 import { loadInstallationSecret, tokenMatches } from './secret.js';
+import { denyApproval } from './actions.js';
 
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
 const DEFAULT_MAX_BODY = 64 * 1024;
@@ -148,7 +149,7 @@ export function cockpitAuth(config: CockpitAuthConfig): MiddlewareHandler {
       return c.json(
         { error: 'rate_limited' },
         429,
-        { headers: { 'Retry-After': String(limiter.retryAfterSeconds()) } },
+        { 'Retry-After': String(limiter.retryAfterSeconds()) },
       );
     }
     // 1. Body-size ceiling (header-only check; the body is never buffered).
@@ -195,8 +196,12 @@ export interface CockpitAppDeps {
   dataDir: string;
   secret: string;
   maxBodyBytes?: number;
+  /** Rate-limit budget (P0-3); defaults to a generous 300 requests / 60s. */
+  rateLimit?: { windowMs: number; max: number };
   /** Demo-only: skip authentication (synthetic data, loopback + read-only). */
   authless?: boolean;
+  /** Override the CLI entry spawned for mutations (tests inject a fake binary). */
+  cliEntry?: string;
 }
 
 /** Build the Hono app for the cockpit service (authenticated, read-only). */
@@ -207,6 +212,7 @@ export function buildCockpitApp(deps: CockpitAppDeps): Hono {
     cockpitAuth({
       secret: deps.secret,
       maxBodyBytes: deps.maxBodyBytes,
+      rateLimit: deps.rateLimit,
       disabled: deps.authless,
     }),
   );
@@ -243,6 +249,53 @@ export function buildCockpitApp(deps: CockpitAppDeps): Hono {
     if (snap instanceof Response) return snap;
     return c.html(renderLiveCockpitHtml(snap, deps.secret));
   });
+
+  /**
+   * Mutation surface (ADR-004 P1-2). Every write is executed by spawning the
+   * existing, fully-tested CLI as a child process - the server stays read-only
+   * and never blocks its own event loop (OD2). Only `deny` is wired today: it
+   * needs no contract and is the least-privileged decision. `approve` is gated
+   * behind Option A (ADR-005) because it requires the contract source of truth;
+   * the route returns a structured "run this in the terminal" instruction.
+   */
+  app.post('/api/actions/deny', async (c) => {
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: 'invalid_json' }, 400);
+    }
+    const approvalId =
+      body && typeof body === 'object' && 'approvalId' in body
+        ? (body as { approvalId?: unknown }).approvalId
+        : undefined;
+    if (typeof approvalId !== 'string' || approvalId.length === 0) {
+      return c.json({ error: 'bad_request', detail: 'approvalId required' }, 400);
+    }
+    const result = await denyApproval({
+      dataDir: deps.dataDir,
+      approvalId,
+      cliEntry: deps.cliEntry,
+    });
+    if (!result.ok) {
+      return c.json(
+        { error: 'action_failed', exitCode: result.code, stderr: result.stderr.trim() },
+        502,
+      );
+    }
+    return c.json({ ok: true, decision: 'denied', output: result.stdout.trim() });
+  });
+
+  app.post('/api/actions/approve', (c) =>
+    c.json(
+      {
+        error: 'approve_not_supported',
+        detail: 'approving requires the contract source of truth (Option A, ADR-005).',
+        cliCommand: 'paos approve <approvalId> --contract <path> [--token T] [--by NAME]',
+      },
+      403,
+    ),
+  );
 
   return app;
 }
