@@ -22,9 +22,10 @@ describe('migration runner', () => {
   it('applies the v2 baseline to an empty DB', () => {
     const db = openDatabase(path.join(dir, 'a.db'));
     const result = migrate(db);
-    expect(result.applied).toEqual([1]);
+    // 0001 (baseline) + 0002 (ADR-005 run_contracts) are applied on a fresh DB.
+    expect(result.applied).toEqual([1, 2]);
     expect(result.skipped).toEqual([]);
-    expect(appliedVersions(db)).toEqual([1]);
+    expect(appliedVersions(db)).toEqual([1, 2]);
     db.close();
   });
 
@@ -32,7 +33,7 @@ describe('migration runner', () => {
     const db = openDatabase(path.join(dir, 'a.db'));
     const result = migrate(db);
     expect(result.applied).toEqual([]);
-    expect(result.skipped).toEqual([1]);
+    expect(result.skipped).toEqual([1, 2]);
     db.close();
   });
 
@@ -113,7 +114,9 @@ describe('migration runner', () => {
     const backupPath = path.join(dir, 'backups', 'a-backup.db');
     backupDatabase(db, backupPath);
     const backup = openDatabase(backupPath);
-    expect(appliedVersions(backup)).toEqual([1]);
+    // The DB is migrated to the current schema (migrations 0001 + 0002 / ADR-005),
+    // so the backup records both applied versions.
+    expect(appliedVersions(backup)).toEqual([1, 2]);
     backup.close();
     db.close();
   });

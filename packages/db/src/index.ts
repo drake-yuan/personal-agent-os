@@ -6,8 +6,10 @@ export {
   insertWorkflowRun, getWorkflowRun, updateWorkflowRun,
   insertDispatchIntent, getDispatchIntent, getDispatchIntentByKey, updateDispatchIntent,
   insertApproval, getApproval, updateApproval, pendingApprovals,
+  insertRunContract, getRunContract,
 } from './repositories.js';
 export type {
   TaskRow, WorkflowRunRow, DispatchIntentRow, ApprovalRow,
   TaskInsert, WorkflowRunInsert, DispatchIntentInsert, ApprovalInsert,
+  RunContractRow, RunContractInsert,
 } from './repositories.js';

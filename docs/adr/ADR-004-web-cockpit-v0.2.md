@@ -286,10 +286,11 @@ faster than ~1 Hz, or more than one front-end maintainer.
   provides `spawnCli` (async child-process spawn via `process.execPath`, non-blocking so the
   HTTP event loop stays free — the OD2 guarantee) and `denyApproval` (argv-guarded: approval id
   matched against `^[A-Za-z0-9._:-]{1,80}$`, DB presence checked before spawn). `auth.ts`
-  mounts `POST /api/actions/deny` (bearer + loopback + Host-pin + rate-limit, like every route)
+  mounts   `POST /api/actions/deny` (bearer + loopback + Host-pin + rate-limit, like every route)
   which spawns `paos approve <id> --deny --by cockpit` and returns the CLI result, and
-  `POST /api/actions/approve`, which intentionally returns **403** with a structured `cliCommand`
-  (the decision is gated behind ADR-005, not implemented by default). Tests: `actions.test.ts`
+  `POST /api/actions/approve`, which (until ADR-005 landed) intentionally returned **403** with a
+  structured `cliCommand` (the decision was gated behind ADR-005, not implemented by default).
+  Tests: `actions.test.ts`
   (spawn argv forwarding, exit-code propagation, id/target guards) and `cockpit-actions.test.ts`
   (401/400/200 for deny, 403 for approve, plus the **OD2 dispatch-isolation** anchor — a real
   server answers `GET /api/snapshot` while the deny child sleeps 2.5 s). This closes the only
@@ -317,6 +318,21 @@ faster than ~1 Hz, or more than one front-end maintainer.
   `approval DEMO-A-01: denied / task DEMO-T-06: blocked / run: paused` and dropped the pending queue
   3 -> 2 (the snapshot lists only pending approvals). The server never held the write lock and stayed
   read-only throughout. Validation: new `actions.test.ts` + `cockpit-actions.test.ts` (94 CLI tests
-  pass); full repo `pnpm -r test` green (329); `pnpm -r typecheck` clean across 10 packages;
+  pass); full repo   `pnpm -r test` green (329); `pnpm -r typecheck` clean across 10 packages;
   `pnpm drift:check` green.
+
+- **2026-11-01 — ADR-005 accepted and implemented (browser approve unlocked).** Migration
+  `0002_run_contracts.sql` adds `run_contracts` (run_id PK+FK, contract_hash, contract_json,
+  created_at); `packages/db` gains `insertRunContract`/`getRunContract`. `pipeline.ts` freezes a
+  copy at run-creation (same `contract:<sha256>` digest in `input_ref`, now resolvable). `cmdApprove`
+  gains `--contract-hash <hash>` which looks up the frozen copy by (run_id, hash) and re-validates it
+  against the current `@paos/contracts` schema before proceeding (parity with `--contract <file>`);
+  a drifted or missing copy falls back to `--contract <file>`. `actions.ts` adds `approveApproval`
+  (spawns `paos approve <id> --contract-hash <hash> --by cockpit [--token T]`), and `auth.ts`
+  `/api/actions/approve` is no longer 403: it reads `input_ref` (read-only SELECT) to resolve the
+  hash and spawns the child — server stays read-only. `demo-seed.ts` freezes valid contracts for the
+  three approval runs so `--demo` approve is functional. Test anchors (freeze + hash consistency,
+  migration idempotency, `--contract-hash` accept/reject, cockpit approve wiring + real-CLI E2E) all
+  green. Remaining named gate: real `paos cockpit`/`--demo` usage evidence (Alt.1 -> accepted) — that
+  requires a human to actually run the server, so it is recorded as open.
 

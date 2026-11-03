@@ -1,7 +1,8 @@
 # ADR-005: Persist a frozen contract per run to enable browser approval
 
-- **Status:** proposed
+- **Status:** accepted
 - **Date:** 2026-11-01
+- **Implemented:** 2026-11-01 (migration 0002, run_contracts repository, pipeline freeze point, `cmdApprove --contract-hash`, `approveApproval` child process, cockpit `/api/actions/approve` unlocked, demo-seed frozen contracts, full test anchors green).
 - **Supersedes / extends:** ADR-004 (Web cockpit v0.2); resolves the OD3 / §5.P1-3 open question.
 
 ## Context
@@ -121,5 +122,7 @@ The server still never holds the write lock and never imports `runContract`.
 
 ## Status note
 
-Proposed. Not yet implemented. ADR-004's `/api/actions/approve` returns 403 with a
-structured `cliCommand` until this ADR is accepted and implemented.
+Accepted and implemented. ADR-004's `/api/actions/approve` now resolves the frozen
+contract hash from the run's `input_ref` and spawns `paos approve <id> --contract-hash
+<hash>` as a child process, keeping the server read-only. The structured `cliCommand`
+fallback remains for runs frozen before this ADR (no `run_contracts` row).

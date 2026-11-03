@@ -32,7 +32,7 @@ import {
   type CockpitSnapshot,
 } from '@paos/api';
 import { loadInstallationSecret, tokenMatches } from './secret.js';
-import { denyApproval } from './actions.js';
+import { denyApproval, approveApproval } from './actions.js';
 
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '::1']);
 const DEFAULT_MAX_BODY = 64 * 1024;
@@ -253,10 +253,10 @@ export function buildCockpitApp(deps: CockpitAppDeps): Hono {
   /**
    * Mutation surface (ADR-004 P1-2). Every write is executed by spawning the
    * existing, fully-tested CLI as a child process - the server stays read-only
-   * and never blocks its own event loop (OD2). Only `deny` is wired today: it
-   * needs no contract and is the least-privileged decision. `approve` is gated
-   * behind Option A (ADR-005) because it requires the contract source of truth;
-   * the route returns a structured "run this in the terminal" instruction.
+   * and never blocks its own event loop (OD2). `deny` needs no contract and is
+   * the least-privileged decision; `approve` (ADR-005) resolves the frozen
+   * contract by hash and delegates the mutation to the CLI, so the server still
+   * never holds the write lock or imports `runContract`.
    */
   app.post('/api/actions/deny', async (c) => {
     let body: unknown;
@@ -286,16 +286,78 @@ export function buildCockpitApp(deps: CockpitAppDeps): Hono {
     return c.json({ ok: true, decision: 'denied', output: result.stdout.trim() });
   });
 
-  app.post('/api/actions/approve', (c) =>
-    c.json(
-      {
-        error: 'approve_not_supported',
-        detail: 'approving requires the contract source of truth (Option A, ADR-005).',
-        cliCommand: 'paos approve <approvalId> --contract <path> [--token T] [--by NAME]',
-      },
-      403,
-    ),
-  );
+  /**
+   * Approve a pending approval (ADR-005). The server reads `input_ref` for the
+   * approval's run (a read-only SELECT) to resolve the frozen-contract hash, then
+   * spawns `paos approve <id> --contract-hash <hash>`. The contract body is never
+   * read by the server; the child re-validates it against the current schema and
+   * performs the write. Runs frozen before ADR-005 have no `run_contracts` row, so
+   * we return a 409 with a fallback `cliCommand` instructing the operator to
+   * supply the contract file.
+   */
+  app.post('/api/actions/approve', async (c) => {
+    let body: unknown;
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: 'invalid_json' }, 400);
+    }
+    const approvalId =
+      body && typeof body === 'object' && 'approvalId' in body
+        ? (body as { approvalId?: unknown }).approvalId
+        : undefined;
+    if (typeof approvalId !== 'string' || approvalId.length === 0) {
+      return c.json({ error: 'bad_request', detail: 'approvalId required' }, 400);
+    }
+    const token =
+      body && typeof body === 'object' && 'token' in body && typeof (body as { token?: unknown }).token === 'string'
+        ? (body as { token: string }).token
+        : undefined;
+
+    const dbPath = join(deps.dataDir, 'paos.db');
+    if (!existsSync(dbPath)) {
+      return c.json({ error: 'not_initialized', hint: 'run `paos init` first' }, 409);
+    }
+    const db = openReadonly(dbPath);
+    try {
+      const apr = db
+        .prepare('SELECT workflow_run_id FROM approvals WHERE id = ?')
+        .get(approvalId) as { workflow_run_id: string } | undefined;
+      if (!apr) return c.json({ error: 'approval_not_found' }, 404);
+      const run = db
+        .prepare('SELECT input_ref FROM workflow_runs WHERE id = ?')
+        .get(apr.workflow_run_id) as { input_ref: string } | undefined;
+      const m = run?.input_ref?.match(/^contract:(.+)$/);
+      if (!m) {
+        return c.json(
+          {
+            error: 'contract_unresolvable',
+            detail: 'run has no frozen contract (created before ADR-005).',
+            cliCommand: `paos approve ${approvalId} --contract <path> [--token T] [--by NAME]`,
+          },
+          409,
+        );
+      }
+      const contractHash = m[1] as string;
+      const result = await approveApproval({
+        dataDir: deps.dataDir,
+        approvalId,
+        contractHash,
+        decidedBy: 'cockpit',
+        token,
+        cliEntry: deps.cliEntry,
+      });
+      if (!result.ok) {
+        return c.json(
+          { error: 'action_failed', exitCode: result.code, stderr: result.stderr.trim() },
+          502,
+        );
+      }
+      return c.json({ ok: true, decision: 'approved', contractHash, output: result.stdout.trim() });
+    } finally {
+      db.close();
+    }
+  });
 
   return app;
 }

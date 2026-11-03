@@ -11,16 +11,111 @@
  * (usage evidence) without requiring a live, initialised kernel DB.
  */
 import type { DatabaseSync } from 'node:sqlite';
+import { createHash } from 'node:crypto';
+import { hashAction, hashScope, normalizeHostPath, randomNonce } from '@paos/core';
 import {
   insertTask,
   insertWorkflowRun,
   insertDispatchIntent,
   insertApproval,
+  insertRunContract,
   type TaskInsert,
   type WorkflowRunInsert,
   type DispatchIntentInsert,
   type ApprovalInsert,
 } from '@paos/db';
+
+/**
+ * Frozen contracts for the approval-queue runs (ADR-005). The cockpit's approve
+ * action resolves the contract by the hash in `workflow_runs.input_ref`; to make
+ * the demo's approval path actually drive the CLI, each approval run carries a
+ * real, schema-valid frozen contract whose hash matches its `input_ref`. These are
+ * synthetic but well-formed (they validate against
+ * paos://schemas/agent-task-contract/1.1.0) so the re-validation at approval time
+ * passes and the cockpit can approve without falling back to a file.
+ */
+interface DemoContract {
+  contract_version: string;
+  task_id: string;
+  workflow_run_id: string;
+  step_id: string;
+  objective: string;
+  domain: string;
+  workflow: { id: string; version: string };
+  inputs: { workspace: string; artifact_refs: string[]; trust_labels: string[] };
+  requirements: {
+    required_capabilities: string[];
+    scope_paths: string[];
+    data_classification: string;
+  };
+  limits: {
+    timeout_seconds: number;
+    max_steps: number;
+    max_tool_calls: number;
+    max_cost: { amount: null; currency: null; source: string };
+  };
+  expected_output: { format: string; schema_id: string; required_artifacts: string[] };
+  acceptance: Array<{ id: string; checker: string; args: Record<string, never> }>;
+  policy: { risk_level: string; external_data_transfer: string; approval_ref: string };
+  idempotency: { dispatch_key: string; delivery_semantics: string };
+}
+
+const DEMO_CONTRACTS: Record<string, DemoContract> = {
+  'DEMO-WR-04': {
+    contract_version: '1.1',
+    task_id: 'DEMO-T-06',
+    workflow_run_id: 'DEMO-WR-04',
+    step_id: 'S-1',
+    objective: 'release_funds',
+    domain: 'investing',
+    workflow: { id: 'wf-fin', version: '2.0.0' },
+    inputs: { workspace: '/tmp/ws', artifact_refs: [], trust_labels: ['system_generated'] },
+    requirements: { required_capabilities: ['credentials.use'], scope_paths: ['/tmp/ws'], data_classification: 'sensitive' },
+    limits: { timeout_seconds: 300, max_steps: 10, max_tool_calls: 100, max_cost: { amount: null, currency: null, source: 'unknown' } },
+    expected_output: { format: 'json', schema_id: 'paos://schemas/agent-result-contract/1.1.0', required_artifacts: ['result'] },
+    acceptance: [{ id: 'ok', checker: 'verify.present', args: {} }],
+    policy: { risk_level: 'R4', external_data_transfer: 'allow-with-approval', approval_ref: 'DEMO-A-01' },
+    idempotency: { dispatch_key: 'DEMO-WR-04-S-1-key', delivery_semantics: 'at_least_once_with_reconciliation' },
+  },
+  'DEMO-WR-08': {
+    contract_version: '1.1',
+    task_id: 'DEMO-T-14',
+    workflow_run_id: 'DEMO-WR-08',
+    step_id: 'S-1',
+    objective: 'merge_patch',
+    domain: 'eng',
+    workflow: { id: 'wf-cockpit', version: '1.0.0' },
+    inputs: { workspace: '/tmp/ws', artifact_refs: [], trust_labels: ['system_generated'] },
+    requirements: { required_capabilities: ['fs.write.workspace'], scope_paths: ['/tmp/ws'], data_classification: 'public' },
+    limits: { timeout_seconds: 300, max_steps: 10, max_tool_calls: 100, max_cost: { amount: null, currency: null, source: 'unknown' } },
+    expected_output: { format: 'json', schema_id: 'paos://schemas/agent-result-contract/1.1.0', required_artifacts: ['result'] },
+    acceptance: [{ id: 'ok', checker: 'verify.present', args: {} }],
+    policy: { risk_level: 'R1', external_data_transfer: 'allow-public-only', approval_ref: 'DEMO-A-02' },
+    idempotency: { dispatch_key: 'DEMO-WR-08-S-1-key', delivery_semantics: 'at_least_once_with_reconciliation' },
+  },
+  'DEMO-WR-03': {
+    contract_version: '1.1',
+    task_id: 'DEMO-T-11',
+    workflow_run_id: 'DEMO-WR-03',
+    step_id: 'S-1',
+    objective: 'retry_dispatch',
+    domain: 'eng',
+    workflow: { id: 'wf-cockpit', version: '1.0.0' },
+    inputs: { workspace: '/tmp/ws', artifact_refs: [], trust_labels: ['system_generated'] },
+    requirements: { required_capabilities: ['external.send'], scope_paths: ['/tmp/ws'], data_classification: 'public' },
+    limits: { timeout_seconds: 300, max_steps: 10, max_tool_calls: 100, max_cost: { amount: null, currency: null, source: 'unknown' } },
+    expected_output: { format: 'json', schema_id: 'paos://schemas/agent-result-contract/1.1.0', required_artifacts: ['result'] },
+    acceptance: [{ id: 'ok', checker: 'verify.present', args: {} }],
+    policy: { risk_level: 'R3', external_data_transfer: 'allow-public-only', approval_ref: 'DEMO-A-03' },
+    idempotency: { dispatch_key: 'DEMO-WR-03-S-1-key', delivery_semantics: 'at_least_once_with_reconciliation' },
+  },
+};
+
+/** sha256 hex of a JSON-serialised contract - must equal the `input_ref` digest. */
+function hashContract(c: object): string {
+  return createHash('sha256').update(JSON.stringify(c)).digest('hex');
+}
+
 
 interface DemoRow<
   T extends TaskInsert | WorkflowRunInsert | DispatchIntentInsert | ApprovalInsert,
@@ -81,13 +176,24 @@ const DISPATCHES: DemoRow<DispatchIntentInsert>[] = [
   { ageMin: 500, base: { id: 'DEMO-D-06', workflowRunId: 'DEMO-WR-06', stepId: 'S-1', adapterId: 'claude-adapter', provider: 'claude', idempotencyKey: 'k-06', contractHash: 'c-06', state: 'accepted', supportsServerIdempotency: false } },
 ];
 
+// All three approval-queue contracts use the identical scope ['/tmp/ws']. The
+// approval's resource-scope hash must be derived from the *normalized* scope,
+// exactly as cmdApprove will normalize the frozen contract at approval time
+// (normalizeContractPaths -> normalizeHostPath). Otherwise isSupersededByChange
+// reports a spurious supersede on platforms where normalizeHostPath rewrites the
+// path (e.g. /tmp -> %TEMP% on Windows), breaking the cockpit approve path.
+const DEMO_SCOPE_HASH = hashScope(['/tmp/ws'].map((sp) => normalizeHostPath(sp)));
+
 const APPROVALS: DemoRow<ApprovalInsert>[] = [
   // R4 - requires the contract to approve (the OD3-traced gate); deny is safe.
-  { ageMin: 90, base: { id: 'DEMO-A-01', workflowRunId: 'DEMO-WR-04', stepId: 'S-1', risk: 'R4', action: 'release_funds', actionHash: 'h-01', resourceScopeHash: 'r-01', decision: 'pending' } },
+  // The action/scope hashes MUST equal the frozen contract's so the cockpit's
+  // approve-by-hash path binds (see isSupersededByChange in @paos/core). The
+  // contract for DEMO-WR-04 has objective 'release_funds' and scope ['/tmp/ws'].
+  { ageMin: 90, base: { id: 'DEMO-A-01', workflowRunId: 'DEMO-WR-04', stepId: 'S-1', risk: 'R4', action: 'release_funds', actionHash: hashAction('release_funds'), resourceScopeHash: DEMO_SCOPE_HASH, nonce: randomNonce(), decision: 'pending' } },
   // Lower-risk, deny-safe.
-  { ageMin: 280, base: { id: 'DEMO-A-02', workflowRunId: 'DEMO-WR-08', stepId: 'S-1', risk: 'R1', action: 'merge_patch', actionHash: 'h-02', resourceScopeHash: 'r-02', decision: 'pending' } },
+  { ageMin: 280, base: { id: 'DEMO-A-02', workflowRunId: 'DEMO-WR-08', stepId: 'S-1', risk: 'R1', action: 'merge_patch', actionHash: hashAction('merge_patch'), resourceScopeHash: DEMO_SCOPE_HASH, decision: 'pending' } },
   // R3 review-style confirmation.
-  { ageMin: 300, base: { id: 'DEMO-A-03', workflowRunId: 'DEMO-WR-03', stepId: 'S-1', risk: 'R3', action: 'retry_dispatch', actionHash: 'h-03', resourceScopeHash: 'r-03', decision: 'pending' } },
+  { ageMin: 300, base: { id: 'DEMO-A-03', workflowRunId: 'DEMO-WR-03', stepId: 'S-1', risk: 'R3', action: 'retry_dispatch', actionHash: hashAction('retry_dispatch'), resourceScopeHash: DEMO_SCOPE_HASH, nonce: randomNonce(), decision: 'pending' } },
 ];
 
 /** Seed a (already open, migrated) DB with the demo spread. */
@@ -96,4 +202,23 @@ export function seedDemoCockpit(db: DatabaseSync): void {
   for (const r of RUNS) insertWorkflowRun(db, stamp(r.base, r.ageMin));
   for (const d of DISPATCHES) insertDispatchIntent(db, stamp(d.base, d.ageMin));
   for (const a of APPROVALS) insertApproval(db, stamp(a.base, a.ageMin));
+
+  // ADR-005: freeze a real contract for each approval-queue run so the cockpit's
+  // approve action can resolve it by hash. The stored hash must equal the run's
+  // `input_ref` digest, so we override the placeholder digest the runs were seeded
+  // with and write the frozen copy. created_at mirrors the run's timestamp.
+  for (const [runId, contract] of Object.entries(DEMO_CONTRACTS)) {
+    const hash = hashContract(contract);
+    const ts = db
+      .prepare('SELECT created_at FROM workflow_runs WHERE id = ?')
+      .get(runId) as { created_at: string } | undefined;
+    const createdAt = ts?.created_at ?? new Date().toISOString();
+    db.prepare('UPDATE workflow_runs SET input_ref = ? WHERE id = ?').run(`contract:${hash}`, runId);
+    insertRunContract(db, {
+      runId,
+      contractHash: hash,
+      contractJson: JSON.stringify(contract),
+      createdAt,
+    });
+  }
 }

@@ -26,6 +26,7 @@ import { evaluatePolicy } from '@paos/policy';
 import {
   insertTask, getTask, updateTask, insertWorkflowRun, getWorkflowRun, updateWorkflowRun,
   insertDispatchIntent, getDispatchIntentByKey, updateDispatchIntent, insertApproval,
+  insertRunContract, getRunContract,
 } from '@paos/db';
 import { reduceDispatch } from './outbox.js';
 import type { DispatchEvent } from './outbox.js';
@@ -426,12 +427,24 @@ export async function runContract(input: RunInput): Promise<RunResult> {
   }
 
   if (!getWorkflowRun(db, runId)) {
+    const contractJson = JSON.stringify(contract);
+    const contractHash = sha256(contractJson);
     insertWorkflowRun(db, {
       id: runId, workflowId: contract.workflow.id,
       workflowVersion: contract.workflow.version, domain: contract.domain,
       taskId, status: 'planned', codeVersion: 'v0.2',
-      inputRef: `contract:${sha256(JSON.stringify(contract))}`,
+      inputRef: `contract:${contractHash}`,
       createdAt: t0, updatedAt: t0,
+    });
+    // ADR-005: freeze a read-only copy of the contract at the moment the run is
+    // created. `input_ref` keeps its `contract:<sha256>` digest (unchanged), but
+    // the digest is now resolvable to this stored row. The cockpit reads the
+    // frozen copy and delegates the actual approval to the CLI (child process),
+    // so the server stays read-only and the contract source of truth remains
+    // @paos/contracts. Re-validation happens again at approval time (cmdApprove
+    // --contract-hash), so a tightened schema can never be silently bypassed.
+    insertRunContract(db, {
+      runId, contractHash, contractJson, createdAt: t0,
     });
   }
 

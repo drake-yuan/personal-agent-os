@@ -26,7 +26,8 @@ describe('paos CLI', () => {
   it('init creates a DB, secret file and applies migrations', () => {
     const dataDir = path.join(dir, 'data1');
     const out = cmdInit(dataDir);
-    expect(out.applied).toEqual([1]);
+    // init applies every pending migration; 0002 (ADR-005) is now part of a fresh install.
+    expect(out.applied).toEqual([1, 2]);
     expect(out.dbPath.endsWith('paos.db')).toBe(true);
     const status = cmdStatus(dataDir);
     expect(status).toContain('sqlite');
@@ -52,10 +53,12 @@ describe('paos CLI', () => {
     const msg = cmdRestore(bk.dir, restored);
     expect(msg).toContain('restored into');
     expect(cmdStatus(restored)).toContain('inbox=0');
-    // Migrate takes a checkpoint and is idempotent.
+    // Migrate takes a checkpoint and is idempotent. A fresh install is already at
+    // schema versions 1 and 2 (ADR-005 migration 0002), so a second migrate is a
+    // no-op but still records the checkpoint.
     const mig = cmdMigrate(restored);
     expect(mig).toContain('migration checkpoint');
-    expect(mig).toContain('schema versions: 1 -> 1');
+    expect(mig).toContain('-> 1, 2');
   });
 
   it('doctor runs five levels per adapter and covers the real CLI ones', async () => {

@@ -296,3 +296,52 @@ export function pendingApprovals(db: DatabaseSync, runId?: string): ApprovalRow[
   const args = runId ? ['pending', runId] : ['pending'];
   return db.prepare(q).all(...args) as unknown as ApprovalRow[];
 }
+
+// ----------------------------------------------------- run_contracts (ADR-005)
+
+/**
+ * Frozen contract copy for a run (ADR-005). Written exactly once when the run is
+ * created, so the cockpit can resolve `input_ref` to a stored row and drive
+ * approval without weakening the R3/R4 gate. The contract body is never modified
+ * after the freeze; `contract_hash` is `sha256(contract_json)` and must equal the
+ * digest embedded in `workflow_runs.input_ref`.
+ */
+export interface RunContractRow {
+  run_id: string;
+  contract_hash: string;
+  contract_json: string;
+  /** ISO timestamp, matching the convention used by every other table. */
+  created_at: string;
+}
+
+export interface RunContractInsert {
+  runId: string;
+  contractHash: string;
+  contractJson: string;
+  /** ISO timestamp, matching the convention used by every other table. */
+  createdAt: string;
+}
+
+export function insertRunContract(db: DatabaseSync, rc: RunContractInsert): void {
+  db.prepare(
+    `INSERT INTO run_contracts (run_id, contract_hash, contract_json, created_at)
+     VALUES (?, ?, ?, ?)`,
+  ).run(rc.runId, rc.contractHash, rc.contractJson, rc.createdAt);
+}
+
+/**
+ * Resolve a frozen contract. When `contractHash` is omitted, returns the row for
+ * the run (used by migrations / tooling); when supplied, it is part of the
+ * lookup so a stale or mismatched hash cannot resolve a different run's contract.
+ */
+export function getRunContract(
+  db: DatabaseSync,
+  runId: string,
+  contractHash?: string,
+): RunContractRow | undefined {
+  const q = contractHash
+    ? 'SELECT * FROM run_contracts WHERE run_id = ? AND contract_hash = ?'
+    : 'SELECT * FROM run_contracts WHERE run_id = ?';
+  const args = contractHash ? [runId, contractHash] : [runId];
+  return db.prepare(q).get(...args) as RunContractRow | undefined;
+}

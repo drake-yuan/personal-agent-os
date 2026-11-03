@@ -66,7 +66,7 @@ function loadLocalEnv(): void {
   }
 }
 loadLocalEnv();
-import { pendingApprovals } from '@paos/db';
+import { pendingApprovals, getApproval, getRunContract } from '@paos/db';
 import { runGateSuite, formatSuite } from '@paos/evaluation';
 import {
   recordingAdapter, workspaceCheckContext, type RunEvidence,
@@ -619,32 +619,75 @@ export async function cmdCockpit(
 }
 
 /**
- * `paos approve <id> --contract <file> [--token T] [--deny] [--by NAME]`
+ * `paos approve <id> [--contract <file> | --contract-hash H] [--token T] [--deny] [--by NAME]`
  * The exit from the risk gate. Approving without an adapter records the
  * decision and returns the task to running; supplying the demo adapter
  * (default) resumes the chain immediately.
+ *
+ * ADR-005 adds `--contract-hash`: instead of re-supplying the contract file,
+ * the caller names the frozen copy stored at run-creation time. The CLI looks it
+ * up by (run_id, hash), re-validates it against the current @paos/contracts
+ * schema, and proceeds exactly as if `--contract <file>` had been given. This is
+ * what lets the cockpit drive approvals without weakening the R3/R4 gate. If the
+ * stored copy no longer validates (schema has drifted) or no copy exists (a run
+ * frozen before ADR-005), the operator is told to fall back to `--contract <file>`.
  */
 export async function cmdApprove(args: ParsedArgs): Promise<string> {
   const dataDir = args.flags['data-dir'] ? String(args.flags['data-dir']) : 'data';
   const dbPath = path.join(dataDir, 'paos.db');
   if (!existsSync(dbPath)) return 'not initialized - run `paos init` first';
   const approvalId = args.positional[0] ?? '';
-  if (!approvalId) return 'usage: paos approve <approval-id> --contract <file> [--token T] [--deny]';
+  if (!approvalId) return 'usage: paos approve <approval-id> [--contract F | --contract-hash H] [--token T] [--deny] [--by NAME]';
 
   const contractPath = args.flags['contract'] ? String(args.flags['contract']) : '';
+  const contractHash = args.flags['contract-hash'] ? String(args.flags['contract-hash']) : undefined;
   const deny = Boolean(args.flags['deny']);
   const token = args.flags['token'] ? String(args.flags['token']) : undefined;
   const decidedBy = args.flags['by'] ? String(args.flags['by']) : 'human';
   const adapterId = args.flags['adapter'] ? String(args.flags['adapter']) : undefined;
 
-  let contract: ContractV11 | undefined;
-  if (contractPath) {
-    if (!existsSync(contractPath)) return `contract not found: ${contractPath}`;
-    contract = normalizeContractPaths(JSON.parse(readFileSync(contractPath, 'utf8')) as ContractV11, loadPathAliases(dataDir));
+  if (!contractPath && !contractHash && !deny) {
+    return 'approving requires the contract: pass --contract <file> or --contract-hash <hash>';
   }
 
   const db = openDatabase(dbPath);
   try {
+    // Resolve the run id for a --contract-hash lookup (the frozen contract is
+    // keyed by run_id + hash). The deny path needs no contract, so this read is
+    // only required when approving via a hash.
+    const apr = getApproval(db, approvalId);
+    if (!apr) return `approval ${approvalId} not found`;
+
+    let contract: ContractV11 | undefined;
+    if (contractPath) {
+      if (!existsSync(contractPath)) return `contract not found: ${contractPath}`;
+      contract = normalizeContractPaths(JSON.parse(readFileSync(contractPath, 'utf8')) as ContractV11, loadPathAliases(dataDir));
+    } else if (contractHash && !deny) {
+      const row = getRunContract(db, apr.workflow_run_id, contractHash);
+      if (!row) {
+        return `no frozen contract for run ${apr.workflow_run_id} with hash ${contractHash}; ` +
+          `supply --contract <file> instead`;
+      }
+      let frozen: ContractV11;
+      try {
+        frozen = JSON.parse(row.contract_json) as ContractV11;
+      } catch {
+        // Corrupt freeze: treat exactly like a schema failure - the operator must
+        // fall back to re-supplying the contract file rather than see a throw.
+        return `frozen contract for ${apr.workflow_run_id} no longer validates against the ` +
+          `current schema; supply --contract <file> instead`;
+      }
+      // Re-validate against the CURRENT schema at approval time (ADR-005). A copy
+      // frozen under an older schema must not silently bypass a tightened gate.
+      const { schema } = loadSchemaById('paos://schemas/agent-task-contract/1.1.0');
+      const validation = validate(frozen as unknown as Parameters<typeof validate>[0], schema as Parameters<typeof validate>[1]);
+      if (!validation.ok) {
+        return `frozen contract for ${apr.workflow_run_id} no longer validates against the ` +
+          `current schema (${validation.errors.length} error(s)); supply --contract <file> instead`;
+      }
+      contract = normalizeContractPaths(frozen, loadPathAliases(dataDir));
+    }
+
     const fixtures = loadDemoFixtures();
     const workspace = contract?.inputs?.workspace ?? process.cwd();
     const base = contract && !deny ? buildAdapter(adapterId, fixtures) : undefined;
@@ -733,7 +776,7 @@ const COMMANDS: Record<string, (args: ParsedArgs) => Promise<string> | string> =
     '                                 or $PAOS_PATH_ALIASES (JSON array or file path)',
     `                                 ID: ${describeKnownAdapters()} (default: demo-adapter)`,
     '  paos approvals [--json]        list approvals waiting on a human',
-    '  paos approve <id> --contract F [--token T] [--deny] [--by NAME]',
+    '  paos approve <id> [--contract F | --contract-hash H] [--token T] [--deny] [--by NAME]',
     '                                 record a decision and resume an approved run',
     '  paos adapter doctor [id] [--auth]',
     '                                 five-level diagnostics for the demo and',
